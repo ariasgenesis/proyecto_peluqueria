@@ -1,0 +1,42 @@
+# Reemplazar el archivo con la versión limpia
+@"
+# Entorno virtual
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Archivos de Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.pyc
+
+# Archivos de base de datos
+*.sql
+*.sqlite
+*.db
+
+# Variables de entorno
+.env
+.env.local
+.env.*.local
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+*.log
+
+# Archivos de sistema
+Thumbs.db
+desktop.ini
+"@ | Out-File -FilePath .gitignore -Encoding UTF8

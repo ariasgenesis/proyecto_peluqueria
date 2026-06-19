@@ -1,0 +1,241 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "API Gestion Estetica",
+    "version": "2.1.0",
+    "description": "API Flask adaptada al esquema consolidado: Múltiples servicios por reserva, doble facturación (anticipo/servicio) y gestión de inventario refinada."
+  },
+  "basePath": "/",
+  "schemes": [
+    "http"
+  ],
+  "securityDefinitions": {
+    "Bearer": {
+      "type": "apiKey",
+      "name": "Authorization",
+      "in": "header",
+      "description": "Formato: Bearer <token>"
+    }
+  },
+  "paths": {
+    "/usuarios/login": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Obtener token JWT",
+        "parameters": [
+          {
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "required": [
+                "username",
+                "password"
+              ],
+              "properties": {
+                "username": {
+                  "type": "string"
+                },
+                "password": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Login exitoso"
+          }
+        }
+      }
+    },
+    "/usuarios/": {
+      "get": {
+        "tags": [
+          "Usuarios"
+        ],
+        "summary": "Listar usuarios",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
+        "parameters": [
+          { "name": "page", "in": "query", "type": "integer", "default": 1 },
+          { "name": "per_page", "in": "query", "type": "integer", "default": 10 },
+          { "name": "search", "in": "query", "type": "string" }
+        ],
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/empleados/": {
+      "get": {
+        "tags": [
+          "Empleados"
+        ],
+        "summary": "Listar empleados",
+        "security": [ { "Bearer": [] } ],
+        "responses": { "200": { "description": "OK" } }
+      },
+      "post": {
+        "tags": [
+          "Empleados"
+        ],
+        "summary": "Crear empleado",
+        "security": [ { "Bearer": [] } ],
+        "parameters": [
+          {
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "required": ["usuario_id", "nombre", "apellido", "documento", "pin"],
+              "properties": {
+                "usuario_id": { "type": "integer" },
+                "nombre": { "type": "string" },
+                "apellido": { "type": "string" },
+                "documento": { "type": "string" },
+                "telefono": { "type": "string" },
+                "cargo": { "type": "string" },
+                "pin": { "type": "string" }
+              }
+            }
+          }
+        ],
+        "responses": { "201": { "description": "Creado" } }
+      }
+    },
+    "/servicios/": {
+      "get": {
+        "tags": ["Servicios"],
+        "summary": "Listar servicios",
+        "responses": { "200": { "description": "OK" } }
+      },
+      "post": {
+        "tags": ["Servicios"],
+        "summary": "Crear servicio",
+        "security": [ { "Bearer": [] } ],
+        "parameters": [
+          {
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "required": ["nombre", "precio", "duracion"],
+              "properties": {
+                "nombre": { "type": "string" },
+                "descripcion": { "type": "string" },
+                "imagen": { "type": "string" },
+                "precio": { "type": "number" },
+                "duracion": { "type": "integer" }
+              }
+            }
+          }
+        ],
+        "responses": { "201": { "description": "Creado" } }
+      }
+    },
+    "/reservas_web/": {
+      "get": {
+        "tags": ["Reservas Web"],
+        "summary": "Listar reservas",
+        "security": [ { "Bearer": [] } ],
+        "responses": { "200": { "description": "OK" } }
+      },
+      "post": {
+        "tags": ["Reservas Web"],
+        "summary": "Crear reserva (Múltiples servicios)",
+        "security": [ { "Bearer": [] } ],
+        "parameters": [
+          {
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "required": ["servicios", "fecha", "hora", "anticipo"],
+              "properties": {
+                "cliente_id": { "type": "integer" },
+                "servicios": {
+                  "type": "array",
+                  "items": { "type": "integer" },
+                  "description": "Lista de IDs de servicios"
+                },
+                "empleado_id": { "type": "integer", "description": "Opcional, el backend puede asignar uno" },
+                "fecha": { "type": "string", "format": "date" },
+                "hora": { "type": "string", "format": "time" },
+                "anticipo": { "type": "number" }
+              }
+            }
+          }
+        ],
+        "responses": { "201": { "description": "Creada" } }
+      }
+    },
+    "/facturas/": {
+      "get": {
+        "tags": ["Facturas"],
+        "summary": "Listar facturas",
+        "security": [ { "Bearer": [] } ],
+        "responses": { "200": { "description": "OK" } }
+      },
+      "post": {
+        "tags": ["Facturas"],
+        "summary": "Crear factura manual",
+        "security": [ { "Bearer": [] } ],
+        "parameters": [
+          {
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "required": ["fecha", "total", "tipo", "pin"],
+              "properties": {
+                "cita_id": { "type": "integer" },
+                "reserva_id": { "type": "integer" },
+                "fecha": { "type": "string" },
+                "total": { "type": "number" },
+                "anticipo": { "type": "number" },
+                "tipo": { "type": "string", "enum": ["anticipo", "servicio"] },
+                "pin": { "type": "string" }
+              }
+            }
+          }
+        ],
+        "responses": { "201": { "description": "Creada" } }
+      }
+    },
+    "/pagos/": {
+      "post": {
+        "tags": ["Pagos"],
+        "summary": "Registrar pago",
+        "security": [ { "Bearer": [] } ],
+        "parameters": [
+          {
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "required": ["factura_id", "metodo", "fecha", "monto"],
+              "properties": {
+                "factura_id": { "type": "integer" },
+                "metodo": { "type": "string", "enum": ["efectivo", "transferencia", "tarjeta", "wompi"] },
+                "fecha": { "type": "string" },
+                "monto": { "type": "number", "minimum": 0.01 }
+              }
+            }
+          }
+        ],
+        "responses": { "201": { "description": "Registrado" } }
+      }
+    }
+  }
+}

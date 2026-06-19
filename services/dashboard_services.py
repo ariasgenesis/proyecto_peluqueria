@@ -1,0 +1,260 @@
+class DashboardService:
+    def __init__(self, mysql):
+        self.mysql = mysql
+
+    def admin_resumen(self):
+        cursor = self.mysql.connection.cursor()
+        cursor.execute(
+            "SELECT "
+            "(SELECT COUNT(*) FROM citas WHERE cit_fecha = CURDATE() AND cit_estado <> 'cancelada') AS citas_hoy, "
+            "(SELECT COUNT(*) FROM citas WHERE cit_fecha = CURDATE() AND cit_estado = 'pendiente') AS citas_pendientes, "
+            "(SELECT COALESCE(SUM(fac_total), 0) FROM facturas WHERE fac_fecha = CURDATE() AND fac_estado = 'pagada') AS ingresos_hoy, "
+            "(SELECT COUNT(*) FROM clientes) AS clientes_total, "
+            "(SELECT COUNT(*) FROM servicios WHERE ser_estado = 'activo') AS servicios_activos, "
+            "(SELECT COUNT(*) FROM productos WHERE pro_estado = 'activo' AND pro_stock <= pro_stock_minimo) AS stock_bajo"
+        )
+        metricas_row = cursor.fetchone()
+        cursor.execute(
+            "SELECT cit_estado, COUNT(*) FROM citas "
+            "WHERE cit_fecha = CURDATE() "
+            "GROUP BY cit_estado"
+        )
+        citas_por_estado = cursor.fetchall()
+        cursor.execute(
+            "SELECT fac_fecha, COALESCE(SUM(fac_total), 0) FROM facturas "
+            "WHERE fac_fecha >= DATE_SUB(CURDATE(), INTERVAL 6 DAY) AND fac_estado = 'pagada' "
+            "GROUP BY fac_fecha ORDER BY fac_fecha ASC"
+        )
+        ingresos_semana = cursor.fetchall()
+        cursor.execute(
+            "SELECT c.cit_id, c.cit_cliente_id, c.cit_empleado_id, c.cit_fecha, c.cit_hora, c.cit_estado, "
+            "cli.cli_nombre, cli.cli_apellido, emp.emp_nombre, emp.emp_apellido "
+            "FROM citas c "
+            "LEFT JOIN clientes cli ON cli.cli_id = c.cit_cliente_id "
+            "LEFT JOIN empleados emp ON emp.emp_id = c.cit_empleado_id "
+            "WHERE c.cit_fecha = CURDATE() AND c.cit_estado <> 'cancelada' "
+            "ORDER BY c.cit_hora ASC LIMIT 20"
+        )
+        citas_hoy = cursor.fetchall()
+        cursor.execute(
+            "SELECT fac_id, fac_cita_id, fac_fecha, fac_total, fac_estado "
+            "FROM facturas ORDER BY fac_id DESC LIMIT 10"
+        )
+        facturas = cursor.fetchall()
+        cursor.execute(
+            "SELECT pro_id, pro_nombre, pro_stock, pro_stock_minimo "
+            "FROM productos WHERE pro_estado = 'activo' AND pro_stock <= pro_stock_minimo "
+            "ORDER BY pro_stock ASC LIMIT 10"
+        )
+        stock_bajo = cursor.fetchall()
+        cursor.execute(
+            "SELECT mov_id, mov_usuario_id, mov_tipo, mov_descripcion, mov_fecha "
+            "FROM movimientos ORDER BY mov_id DESC LIMIT 10"
+        )
+        movimientos = cursor.fetchall()
+        cursor.close()
+        return {
+            'metricas': {
+                'citas_hoy': int(metricas_row[0] or 0),
+                'citas_pendientes': int(metricas_row[1] or 0),
+                'ingresos_hoy': float(metricas_row[2] or 0),
+                'clientes_total': int(metricas_row[3] or 0),
+                'servicios_activos': int(metricas_row[4] or 0),
+                'stock_bajo': int(metricas_row[5] or 0),
+            },
+            'citas_por_estado': [
+                {'estado': r[0], 'total': int(r[1] or 0)}
+                for r in citas_por_estado
+            ],
+            'ingresos_semana': [
+                {'fecha': str(r[0]), 'total': float(r[1] or 0)}
+                for r in ingresos_semana
+            ],
+            'citas_hoy': [
+                {
+                    'id_cita': r[0],
+                    'cliente_id': r[1],
+                    'empleado_id': r[2],
+                    'fecha': str(r[3]),
+                    'hora': str(r[4]),
+                    'estado': r[5],
+                    'cliente_nombre': r[6],
+                    'cliente_apellido': r[7],
+                    'empleado_nombre': r[8],
+                    'empleado_apellido': r[9],
+                }
+                for r in citas_hoy
+            ],
+            'facturas_recientes': [
+                {'id_factura': r[0], 'cita_id': r[1], 'fecha': str(r[2]), 'total': float(r[3]), 'estado': r[4]}
+                for r in facturas
+            ],
+            'productos_stock_bajo': [
+                {'id_producto': r[0], 'nombre': r[1], 'stock': r[2], 'stock_minimo': r[3]}
+                for r in stock_bajo
+            ],
+            'movimientos_recientes': [
+                {'id_movimiento': r[0], 'usuario_id': r[1], 'tipo': r[2], 'descripcion': r[3], 'fecha': str(r[4])}
+                for r in movimientos
+            ],
+        }
+
+    def empleado_resumen(self, usuario_id):
+        cursor = self.mysql.connection.cursor()
+        cursor.execute("SELECT emp_id FROM empleados WHERE emp_usuario_id = %s", (usuario_id,))
+        row = cursor.fetchone()
+        if not row:
+            cursor.close()
+            return {'citas_dia': [], 'proximas_citas': [], 'actividad_reciente': []}
+        empleado_id = row[0]
+        cursor.execute(
+            "SELECT c.cit_id, c.cit_cliente_id, c.cit_fecha, c.cit_hora, c.cit_estado, "
+            "cli.cli_nombre, cli.cli_apellido "
+            "FROM citas c "
+            "LEFT JOIN clientes cli ON cli.cli_id = c.cit_cliente_id "
+            "WHERE c.cit_empleado_id = %s AND c.cit_fecha = CURDATE() AND c.cit_estado <> 'cancelada' "
+            "ORDER BY c.cit_hora ASC",
+            (empleado_id,)
+        )
+        citas_dia = cursor.fetchall()
+        cursor.execute(
+            "SELECT c.cit_id, c.cit_cliente_id, c.cit_fecha, c.cit_hora, c.cit_estado, "
+            "cli.cli_nombre, cli.cli_apellido "
+            "FROM citas c "
+            "LEFT JOIN clientes cli ON cli.cli_id = c.cit_cliente_id "
+            "WHERE c.cit_empleado_id = %s AND c.cit_fecha >= CURDATE() AND c.cit_estado <> 'cancelada' "
+            "ORDER BY c.cit_fecha ASC, c.cit_hora ASC LIMIT 15",
+            (empleado_id,)
+        )
+        proximas = cursor.fetchall()
+        cursor.execute(
+            "SELECT mov_id, mov_tipo, mov_descripcion, mov_fecha "
+            "FROM movimientos WHERE mov_usuario_id = %s ORDER BY mov_id DESC LIMIT 10",
+            (usuario_id,)
+        )
+        actividad = cursor.fetchall()
+        cursor.close()
+        return {
+            'citas_dia': [
+                {
+                    'id_cita': r[0],
+                    'cliente_id': r[1],
+                    'fecha': str(r[2]),
+                    'hora': str(r[3]),
+                    'estado': r[4],
+                    'cliente_nombre': r[5],
+                    'cliente_apellido': r[6],
+                }
+                for r in citas_dia
+            ],
+            'proximas_citas': [
+                {
+                    'id_cita': r[0],
+                    'cliente_id': r[1],
+                    'fecha': str(r[2]),
+                    'hora': str(r[3]),
+                    'estado': r[4],
+                    'cliente_nombre': r[5],
+                    'cliente_apellido': r[6],
+                }
+                for r in proximas
+            ],
+            'actividad_reciente': [
+                {'id_movimiento': r[0], 'tipo': r[1], 'descripcion': r[2], 'fecha': str(r[3])}
+                for r in actividad
+            ],
+        }
+
+    def kanban_citas(self):
+        cursor = self.mysql.connection.cursor()
+        cursor.execute(
+            "SELECT c.cit_id, c.cit_fecha, c.cit_hora, c.cit_estado, "
+            "cli.cli_nombre, cli.cli_apellido, emp.emp_nombre, emp.emp_apellido, "
+            "GROUP_CONCAT(s.ser_nombre SEPARATOR ', ') AS servicios, "
+            "COALESCE(SUM(s.ser_duracion), 0) AS duracion, "
+            "f.fac_estado, f.fac_saldo_pendiente, "
+            "CASE WHEN NOW() > DATE_ADD(TIMESTAMP(c.cit_fecha, c.cit_hora), INTERVAL COALESCE(SUM(s.ser_duracion), 0) MINUTE) "
+            "AND c.cit_estado NOT IN ('completada', 'cancelada') THEN 1 ELSE 0 END AS retrasada "
+            "FROM citas c "
+            "LEFT JOIN clientes cli ON cli.cli_id = c.cit_cliente_id "
+            "LEFT JOIN empleados emp ON emp.emp_id = c.cit_empleado_id "
+            "LEFT JOIN detalle_citas dc ON dc.dci_cita_id = c.cit_id "
+            "LEFT JOIN servicios s ON s.ser_id = dc.dci_servicio_id "
+            "LEFT JOIN facturas f ON f.fac_cita_id = c.cit_id AND f.fac_estado <> 'cancelada' "
+            "WHERE c.cit_estado <> 'cancelada' "
+            "GROUP BY c.cit_id, c.cit_fecha, c.cit_hora, c.cit_estado, cli.cli_nombre, cli.cli_apellido, "
+            "emp.emp_nombre, emp.emp_apellido, f.fac_estado, f.fac_saldo_pendiente "
+            "ORDER BY c.cit_fecha ASC, c.cit_hora ASC"
+        )
+        rows = cursor.fetchall()
+        cursor.close()
+        columnas = {'confirmadas': [], 'liquidacion_pendiente': [], 'finalizadas': []}
+        for r in rows:
+            tarjeta = {
+                'id_cita': r[0],
+                'fecha': str(r[1]),
+                'hora': str(r[2]),
+                'estado': r[3],
+                'cliente': f'{r[4] or ""} {r[5] or ""}'.strip(),
+                'empleado': f'{r[6] or ""} {r[7] or ""}'.strip(),
+                'servicio': r[8],
+                'duracion': int(r[9] or 0),
+                'factura_estado': r[10],
+                'saldo_pendiente': float(r[11] or 0),
+                'retraso': bool(r[12]),
+            }
+            if r[3] == 'completada' or r[10] == 'pagada':
+                columnas['finalizadas'].append(tarjeta)
+            elif r[10] in ('pendiente', 'parcial') or (r[11] or 0) > 0:
+                columnas['liquidacion_pendiente'].append(tarjeta)
+            else:
+                columnas['confirmadas'].append(tarjeta)
+        return columnas
+
+    def alertas(self):
+        cursor = self.mysql.connection.cursor()
+        cursor.execute(
+            "SELECT pro_id, pro_nombre, pro_stock, pro_stock_minimo "
+            "FROM productos WHERE pro_estado = 'activo' AND pro_stock <= pro_stock_minimo "
+            "ORDER BY pro_stock ASC"
+        )
+        productos = cursor.fetchall()
+        cursor.execute(
+            "SELECT c.cit_id, c.cit_fecha, c.cit_hora, cli.cli_nombre, cli.cli_apellido, "
+            "emp.emp_nombre, emp.emp_apellido, GROUP_CONCAT(s.ser_nombre SEPARATOR ', '), COALESCE(SUM(s.ser_duracion), 0) "
+            "FROM citas c "
+            "LEFT JOIN clientes cli ON cli.cli_id = c.cit_cliente_id "
+            "LEFT JOIN empleados emp ON emp.emp_id = c.cit_empleado_id "
+            "LEFT JOIN detalle_citas dc ON dc.dci_cita_id = c.cit_id "
+            "LEFT JOIN servicios s ON s.ser_id = dc.dci_servicio_id "
+            "WHERE c.cit_estado NOT IN ('completada', 'cancelada') "
+            "GROUP BY c.cit_id, c.cit_fecha, c.cit_hora, cli.cli_nombre, cli.cli_apellido, emp.emp_nombre, emp.emp_apellido "
+            "HAVING NOW() > DATE_ADD(TIMESTAMP(c.cit_fecha, c.cit_hora), INTERVAL COALESCE(SUM(s.ser_duracion), 0) MINUTE) "
+            "ORDER BY c.cit_fecha ASC, c.cit_hora ASC"
+        )
+        citas = cursor.fetchall()
+        cursor.close()
+        return {
+            'productos_stock_bajo': [
+                {
+                    'id_producto': r[0],
+                    'nombre': r[1],
+                    'stock': r[2],
+                    'stock_minimo': r[3],
+                }
+                for r in productos
+            ],
+            'citas_retrasadas': [
+                {
+                    'id_cita': r[0],
+                    'fecha': str(r[1]),
+                    'hora': str(r[2]),
+                    'cliente': f'{r[3] or ""} {r[4] or ""}'.strip(),
+                    'empleado': f'{r[5] or ""} {r[6] or ""}'.strip(),
+                    'servicio': r[7],
+                    'duracion': int(r[8] or 0),
+                    'retrasada': True,
+                }
+                for r in citas
+            ],
+        }
