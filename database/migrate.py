@@ -28,16 +28,16 @@ from dotenv import load_dotenv
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 load_dotenv(os.path.join(os.path.dirname(BASE_DIR), '.env'))
 
-DB_NAME = os.getenv('MYSQL_DB', 'gestiondb')
+DB_NAME = os.getenv('MYSQL_DB') or os.getenv('MYSQL_DATABASE') or 'gestiondb'
 
 
 def conectar(use_db=False):
     return MySQLdb.connect(
-        host=os.getenv('MYSQL_HOST', 'localhost'),
-        user=os.getenv('MYSQL_USER', 'root'),
-        passwd=os.getenv('MYSQL_PASSWORD', ''),
-        port=int(os.getenv('MYSQL_PORT', 3306)),
-        db=DB_NAME if use_db else '',
+        host=os.getenv('MYSQL_HOST') or os.getenv('MYSQLHOST') or 'localhost',
+        user=os.getenv('MYSQL_USER') or os.getenv('MYSQLUSER') or 'root',
+        password=os.getenv('MYSQL_PASSWORD') or os.getenv('MYSQLPASSWORD') or '',
+        port=int(os.getenv('MYSQL_PORT') or os.getenv('MYSQLPORT') or 3306),
+        database=DB_NAME if use_db else '',
         charset='utf8mb4',
     )
 
