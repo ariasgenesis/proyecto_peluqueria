@@ -5,8 +5,6 @@ from services.base_service import ServiceError
 from services.clientes_services import ClienteService
 from services.login_services import LoginService
 
-STAFF_ROLES = frozenset({'admin', 'empleado'})
-
 
 def cntlogin():
     data = request.get_json(silent=True) or {}
@@ -22,11 +20,6 @@ def cntlogin():
     usuario = login_service.autenticar(username.strip(), password)
     if not usuario:
         return jsonify({'success': False, 'message': 'Credenciales invalidas'}), 401
-    if usuario.get('rol') not in STAFF_ROLES:
-        return jsonify({
-            'success': False,
-            'message': 'Acceso denegado. Este portal es solo para personal autorizado.',
-        }), 403
 
     auth_service = AuthService()
     token = auth_service.generar_access_token(usuario)

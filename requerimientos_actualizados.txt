@@ -1,0 +1,329 @@
+
+REQUERIMIENTOS ACTUALIZADOS — SISTEMA DE GESTIÓN PARA PELUQUERÍA
+
+El proyecto consiste en una plataforma web - MOBILE FIRST - SPA - administrativa para una peluquería/estética con múltiples empleados y flujo constante de clientes.
+
+El sistema estará dividido en dos partes:
+
+1. Dashboard administrativo interno
+2. Sitio web público para clientes - MOBILE FIRST
+
+El software permitirá:
+- gestionar citas
+- administrar empleados
+- controlar inventario
+- manejar facturación
+- registrar pagos
+- realizar reservas online con anticipo mediante Wompi
+
+2. ARQUITECTURA GENERAL
+
+Tecnologías principales:
+
+Backend:
+- Python
+- FastAPI
+- SQLAlchemy
+- JWT
+- MySQL
+
+Frontend:
+- VUE JS
+- CSS PURO
+- CUIDAR LOADERS (RE UTILIZAR COMPONENTES)
+-USAR SKELETONS DE CARGA
+- CUIDAR EL DISEÑO
+
+Integraciones:
+- Wompi (sandbox)
+
+3. ROLES DEL SISTEMA
+
+ADMINISTRADOR
+Puede:
+- gestionar empleados
+- gestionar inventario
+- gestionar servicios
+- visualizar reportes
+- administrar citas
+- modificar facturas
+- validar pagos
+- visualizar dashboard completo
+
+EMPLEADO
+Puede:
+- visualizar sus citas
+- actualizar estados de citas
+- gestionar flujo operativo
+- visualizar actividad relacionada
+
+CLIENTE
+Puede:
+- registrarse
+- iniciar sesión
+- reservar citas
+- pagar anticipos
+- visualizar historial de citas
+- visualizar historial de facturas
+
+El cliente NO puede:
+- acceder al dashboard administrativo
+- modificar facturas
+- modificar inventario
+- administrar empleados
+
+4. GESTIÓN DE CITAS Y RESERVAS
+
+El sistema permitirá:
+
+- crear citas manuales desde dashboard
+- crear reservas online desde la web
+- validar disponibilidad de empleados
+- evitar cruces de horarios
+- cancelar citas
+- cambiar estados
+- reprogramar citas
+
+Las citas tendrán estados:
+- pendiente
+- confirmada
+- cancelada
+- completada
+
+Las reservas web tendrán estados:
+- pendiente
+- pagada
+- cancelada
+
+5. RESERVAS WEB Y PAGOS
+
+El sitio web público permitirá:
+
+1. Seleccionar servicio
+2. Seleccionar empleado
+3. Seleccionar horario disponible
+4. Realizar pago de anticipo
+5. Confirmar reserva automáticamente
+
+IMPORTANTE:
+El sistema NO funcionará como ecommerce completo.
+
+NO se venderán productos online.
+
+SOLO se gestionarán anticipos de citas.
+
+Método de pago:
+- Wompi Sandbox
+
+Cuando el pago del deposito sea confirmado:
+- se crea automáticamente la cita
+- se genera factura parcial
+- se registra pago
+- el dashboard administrativo recibe la cita automáticamente
+
+6. DASHBOARD ADMINISTRATIVO
+
+El dashboard administrativo estará basado en un flujo estilo Kanban.
+
+COLUMNAS PRINCIPALES:
+
+1. Confirmadas
+Citas con anticipo validado y programadas para el día.
+
+2. Liquidación Pendiente
+Servicios finalizados que aún requieren pago restante.
+
+3. Finalizadas
+Servicios completados y facturados.
+
+Cada tarjeta mostrará:
+- cliente
+- servicio
+- estilista
+- hora
+- estado
+- retrasos
+
+==================================================
+7. GESTIÓN DINÁMICA DE TARJETAS
+==================================================
+
+Cada tarjeta del dashboard permitirá:
+
+- cambiar estilista
+- modificar servicios
+- agregar servicios adicionales
+- recalcular factura
+- mover entre columnas
+
+Todo esto deberá actualizar automáticamente:
+- estado cita
+- factura
+- saldo pendiente
+
+8. FACTURACIÓN Y PAGOS
+
+El sistema deberá:
+
+- generar facturas digitales/imprimir.
+- soportar pagos parciales
+- manejar depositos
+- recalcular saldo pendiente
+- registrar método de pago
+- aceptar distintos metodos de pago dentro de una factura.
+- ¿reflejar ganancias del mes?
+
+Métodos soportados (solo emular pago con wompi):
+- efectivo
+- transferencia
+- tarjeta
+- wompi
+
+Estados de factura:
+- pendiente
+- parcial
+- pagada (bloqueo automatico de edicion)
+- cancelada (bloqueo automatico de edicion)
+
+9. VALIDACIÓN MEDIANTE PIN
+
+Acciones sensibles requerirán PIN de empleado.
+
+El PIN:
+- será de 4 dígitos
+- hasheado
+- validado desde backend
+
+Acciones protegidas:
+- crear factura
+- editar factura
+- eliminar factura
+- ajustes inventario
+
+Todas las acciones deberán registrarse en historial movimientos.
+
+10. INVENTARIO
+
+El sistema manejará dos tipos de productos:
+
+1. UNITARIO:
+Descuento automático del inventario al pagar factura final.
+
+Ejemplos:
+- tintes
+- sobres decolorantes
+- uñas acrílicas
+
+2. MANUAL
+Control manual debido a uso parcial.
+
+Ejemplos:
+- shampoo
+- esmaltes
+- sprays
+
+Funciones:
+- reflejar
+- registrar productos
+- editar productos
+- activar/inactivar productos
+- agregar stock
+- descontar stock
+- alertas stock bajo
+
+
+11. ALERTAS Y NOTIFICACIONES
+
+El sistema deberá mostrar:
+
+- productos con stock bajo
+- citas retrasadas
+- movimientos recientes
+
+Las tarjetas podrán mostrar alertas visuales si:
+- el servicio supera la duración estimada
+
+
+12. HISTORIAL DE MOVIMIENTOS/auditoria
+
+El sistema registrará:
+
+- creación facturas
+- edición facturas
+- cancelación citas
+- movimientos inventario
+- reservas web
+- pagos confirmados
+
+Cada movimiento almacenará:
+- usuario
+- fecha
+- descripción
+
+13. DASHBOARD CLIENTE/en el sitio web publico.
+
+El cliente tendrá un dashboard sencillo.
+
+SOLO podrá visualizar:
+- próximas citas
+- historial citas
+- historial facturas
+
+14. GESTIÓN DE HORARIOS
+
+El sistema permitirá:
+- configurar horarios empleados
+- bloquear horarios
+- evitar reservas fuera de jornada laboral
+
+15. SITIO WEB PÚBLICO
+
+El sitio público incluirá:
+
+- inicio
+- servicios
+- información peluquería
+- empleados
+- galería básica
+- contacto
+- botón WhatsApp
+- reserva citas
+
+17. REQUERIMIENTOS TÉCNICOS IMPORTANTES
+
+El backend deberá incluir:
+- JWT
+- middleware roles
+- hash passwords
+- hash PIN
+- validaciones
+- paginación
+- CORS
+- arquitectura modular
+
+La API deberá:
+- mantener respuestas consistentes
+- manejar errores globalmente
+- usar arquitectura limpia
+
+18. REQUERIMIENTOS NO FUNCIONALES
+
+El sistema deberá:
+- soportar múltiples reservas simultáneas
+- evitar duplicados
+- ser escalable
+- permitir futuras mejoras sin rehacer arquitectura
+
+19. FUNCIONES QUE NO SE IMPLEMENTARÁN
+
+NO incluir:
+- ecommerce completo
+- marketplace
+- múltiples sucursales reales
+- IA
+- chat interno
+- microservicios
+- sockets
+- analytics avanzados
+- reportes enterprise
+- notificaciones push complejas

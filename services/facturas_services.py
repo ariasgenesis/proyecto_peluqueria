@@ -1,5 +1,6 @@
 from models.facturas_model import FacturaModel
 from datetime import datetime
+from decimal import Decimal
 
 from services.base_service import BaseCrudService, ServiceError
 from services.empleados_services import EmpleadoService
@@ -25,8 +26,8 @@ class FacturaService(BaseCrudService):
     }
 
     def _normalizar_saldo(self, payload):
-        anticipo = payload.get('anticipo') or 0
-        total = payload.get('total') or 0
+        anticipo = Decimal(str(payload.get('anticipo') or 0))
+        total = Decimal(str(payload.get('total') or 0))
         saldo = total - anticipo
         if saldo < 0:
             raise ServiceError('El anticipo no puede superar el total de la factura')

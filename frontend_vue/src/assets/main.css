@@ -1,0 +1,56 @@
+/* ===== Tokens · Editorial beauty (del mockup Salon.dc.html) ===== */
+:root {
+  --bg: #fff;          /* lino cálido rosado */
+  --bg-footer: #f6ecec;
+  --ink: #1a1714;         /* tinta */
+  --rose: #b0455f;        /* acento rosa empolvado */
+  --rose-soft: #c2607a;   /* numerales / detalles */
+  --muted: #8a7f72;
+  --muted-2: #6b6258;
+  --muted-3: #a59a8d;
+  --hairline: rgba(26, 23, 20, 0.08);
+  --radius-card: 14px;
+  --radius-screen: 30px;
+
+  /* shimmer skeleton */
+  --sk-a: #eddfe0;
+  --sk-b: #f6eaeb;
+
+  --serif: 'Fraunces', Georgia, serif;
+  --sans: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: var(--sans);
+  color: var(--ink);
+  background: var(--bg);
+}
+
+/* scrollbar oculto en carruseles */
+.scrl::-webkit-scrollbar {
+  display: none;
+}
+.scrl {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* shimmer reutilizable */
+@keyframes sh {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+.shimmer {
+  background: linear-gradient(100deg, var(--sk-a) 30%, var(--sk-b) 50%, var(--sk-a) 70%);
+  background-size: 200% 100%;
+  animation: sh 1.5s linear infinite;
+}

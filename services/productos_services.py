@@ -50,7 +50,7 @@ class ProductoService(BaseCrudService):
                 (user_id, tipo_movimiento, descripcion),
             )
             cursor.execute(
-                "INSERT INTO movimientos_inventario (min_producto_id, min_usuario_id, min_tipo, min_cantidad, min_motivo) "
+                "INSERT INTO movimientos_inventario (moi_producto_id, moi_usuario_id, moi_tipo, moi_cantidad, moi_descripcion) "
                 "VALUES (%s, %s, %s, %s, %s)",
                 (
                     producto_id,
@@ -101,7 +101,7 @@ class ProductoService(BaseCrudService):
             )
             if diferencia != 0:
                 cursor.execute(
-                    "INSERT INTO movimientos_inventario (min_producto_id, min_usuario_id, min_tipo, min_cantidad, min_motivo) "
+                    "INSERT INTO movimientos_inventario (moi_producto_id, moi_usuario_id, moi_tipo, moi_cantidad, moi_descripcion) "
                     "VALUES (%s, %s, 'ajuste', %s, %s)",
                     (producto_id, user_id, abs(diferencia), f'Ajuste de stock a {stock}'),
                 )

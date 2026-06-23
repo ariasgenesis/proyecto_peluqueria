@@ -4,5 +4,7 @@ flask-mysqldb
 Flask-JWT-Extended
 python-dotenv
 flask-bcrypt
+flasgger
+requests
 
 # pip install - r requirements.txt

@@ -167,45 +167,58 @@ class DashboardService:
 
     def kanban_citas(self):
         cursor = self.mysql.connection.cursor()
+        # fac_tipo='servicio' evita filas duplicadas cuando Wompi genera anticipo+servicio
         cursor.execute(
             "SELECT c.cit_id, c.cit_fecha, c.cit_hora, c.cit_estado, "
-            "cli.cli_nombre, cli.cli_apellido, emp.emp_nombre, emp.emp_apellido, "
-            "GROUP_CONCAT(s.ser_nombre SEPARATOR ', ') AS servicios, "
+            "cli.cli_nombre, cli.cli_apellido, c.cit_cliente_id, "
+            "emp.emp_nombre, emp.emp_apellido, c.cit_empleado_id, "
+            "GROUP_CONCAT(s.ser_nombre ORDER BY s.ser_id SEPARATOR ', ') AS servicios, "
             "COALESCE(SUM(s.ser_duracion), 0) AS duracion, "
-            "f.fac_estado, f.fac_saldo_pendiente, "
-            "CASE WHEN NOW() > DATE_ADD(TIMESTAMP(c.cit_fecha, c.cit_hora), INTERVAL COALESCE(SUM(s.ser_duracion), 0) MINUTE) "
+            "f.fac_id, f.fac_estado, f.fac_saldo_pendiente, f.fac_anticipo, f.fac_total, "
+            "CASE WHEN NOW() > DATE_ADD(TIMESTAMP(c.cit_fecha, c.cit_hora), "
+            "INTERVAL COALESCE(SUM(s.ser_duracion), 0) MINUTE) "
             "AND c.cit_estado NOT IN ('completada', 'cancelada') THEN 1 ELSE 0 END AS retrasada "
             "FROM citas c "
             "LEFT JOIN clientes cli ON cli.cli_id = c.cit_cliente_id "
             "LEFT JOIN empleados emp ON emp.emp_id = c.cit_empleado_id "
             "LEFT JOIN detalle_citas dc ON dc.dci_cita_id = c.cit_id "
             "LEFT JOIN servicios s ON s.ser_id = dc.dci_servicio_id "
-            "LEFT JOIN facturas f ON f.fac_cita_id = c.cit_id AND f.fac_estado <> 'cancelada' "
+            "LEFT JOIN facturas f ON f.fac_cita_id = c.cit_id "
+            "  AND f.fac_tipo = 'servicio' AND f.fac_estado <> 'cancelada' "
             "WHERE c.cit_estado <> 'cancelada' "
-            "GROUP BY c.cit_id, c.cit_fecha, c.cit_hora, c.cit_estado, cli.cli_nombre, cli.cli_apellido, "
-            "emp.emp_nombre, emp.emp_apellido, f.fac_estado, f.fac_saldo_pendiente "
+            "GROUP BY c.cit_id, c.cit_fecha, c.cit_hora, c.cit_estado, "
+            "cli.cli_nombre, cli.cli_apellido, c.cit_cliente_id, "
+            "emp.emp_nombre, emp.emp_apellido, c.cit_empleado_id, "
+            "f.fac_id, f.fac_estado, f.fac_saldo_pendiente, f.fac_anticipo, f.fac_total "
             "ORDER BY c.cit_fecha ASC, c.cit_hora ASC"
         )
         rows = cursor.fetchall()
         cursor.close()
         columnas = {'confirmadas': [], 'liquidacion_pendiente': [], 'finalizadas': []}
         for r in rows:
+            estado_cita    = r[3]
+            saldo          = float(r[14] or 0)
             tarjeta = {
-                'id_cita': r[0],
-                'fecha': str(r[1]),
-                'hora': str(r[2]),
-                'estado': r[3],
-                'cliente': f'{r[4] or ""} {r[5] or ""}'.strip(),
-                'empleado': f'{r[6] or ""} {r[7] or ""}'.strip(),
-                'servicio': r[8],
-                'duracion': int(r[9] or 0),
-                'factura_estado': r[10],
-                'saldo_pendiente': float(r[11] or 0),
-                'retraso': bool(r[12]),
+                'id_cita':        r[0],
+                'fecha':          str(r[1]),
+                'hora':           str(r[2]),
+                'estado':         estado_cita,
+                'cliente':        f'{r[4] or ""} {r[5] or ""}'.strip(),
+                'cliente_id':     r[6],
+                'empleado':       f'{r[7] or ""} {r[8] or ""}'.strip(),
+                'empleado_id':    r[9],
+                'servicio':       r[10],
+                'duracion':       int(r[11] or 0),
+                'factura_id':     r[12],
+                'factura_estado': r[13],
+                'saldo_pendiente': saldo,
+                'anticipo':       float(r[15] or 0),
+                'total':          float(r[16] or 0),
+                'retraso':        bool(r[17]),
             }
-            if r[3] == 'completada' or r[10] == 'pagada':
+            if estado_cita == 'completada' and saldo == 0:
                 columnas['finalizadas'].append(tarjeta)
-            elif r[10] in ('pendiente', 'parcial') or (r[11] or 0) > 0:
+            elif estado_cita == 'completada' and saldo > 0:
                 columnas['liquidacion_pendiente'].append(tarjeta)
             else:
                 columnas['confirmadas'].append(tarjeta)

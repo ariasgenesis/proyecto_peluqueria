@@ -88,6 +88,16 @@ class EmpleadoService(BaseCrudService):
                 ),
             )
             empleado_id = cursor.lastrowid
+            # Horario predeterminado: lunes a sábado 09:00–18:00
+            horario_default = [
+                (empleado_id, dia, '09:00:00', '18:00:00')
+                for dia in ('lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado')
+            ]
+            cursor.executemany(
+                "INSERT INTO horarios (hor_empleado_id, hor_dia_semana, hor_hora_inicio, hor_hora_fin) "
+                "VALUES (%s, %s, %s, %s)",
+                horario_default,
+            )
             self.mysql.connection.commit()
         except Exception as exc:
             self.mysql.connection.rollback()
