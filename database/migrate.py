@@ -20,6 +20,8 @@ import os
 import sys
 
 import bcrypt
+import pymysql
+pymysql.install_as_MySQLdb()
 import MySQLdb
 from dotenv import load_dotenv
 
