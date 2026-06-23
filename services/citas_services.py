@@ -89,16 +89,20 @@ class CitaService(BaseCrudService):
         )
         horario = cursor.fetchone()
         if not horario:
-            if close_cursor:
-                cursor.close()
-            raise ServiceError('El empleado no tiene horario laboral para esa fecha')
+            # Solo bloquear si el empleado tiene horarios configurados pero no para este día.
+            # Si no tiene ningún horario configurado aún, se omite la validación.
+            cursor.execute("SELECT COUNT(*) FROM horarios WHERE hor_empleado_id = %s", (empleado_id,))
+            if cursor.fetchone()[0] > 0:
+                if close_cursor:
+                    cursor.close()
+                raise ServiceError('El empleado no tiene horario laboral para esa fecha')
 
         hora_normalizada = self._normalizar_hora(hora)
         inicio = self._time_to_seconds(hora_normalizada)
         fin = inicio + (int(duracion_minutos) * 60)
-        
-        # Validar horario laboral
-        if self._time_to_seconds(horario[0]) > inicio or self._time_to_seconds(horario[1]) < fin:
+
+        # Validar horario laboral solo si está configurado
+        if horario and (self._time_to_seconds(horario[0]) > inicio or self._time_to_seconds(horario[1]) < fin):
             if close_cursor:
                 cursor.close()
             raise ServiceError('La cita esta fuera del horario laboral del empleado')
@@ -193,7 +197,7 @@ class CitaService(BaseCrudService):
         cursor.execute(
             "SELECT e.emp_id, COUNT(c.cit_id) AS carga "
             "FROM empleados e "
-            "INNER JOIN horarios h ON h.hor_empleado_id = e.emp_id AND h.hor_dia_semana = %s "
+            "LEFT JOIN horarios h ON h.hor_empleado_id = e.emp_id AND h.hor_dia_semana = %s "
             "LEFT JOIN citas c ON c.cit_empleado_id = e.emp_id AND c.cit_fecha = %s AND c.cit_estado <> 'cancelada' "
             "WHERE e.emp_estado = 'activo' "
             "GROUP BY e.emp_id ORDER BY carga ASC, e.emp_id ASC",

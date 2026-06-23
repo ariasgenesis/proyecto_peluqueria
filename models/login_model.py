@@ -4,8 +4,8 @@ class LoginModel:
         cursor = mysql.connection.cursor()
         cursor.execute(
             "SELECT usu_id, usu_username, usu_password, usu_email, usu_rol, usu_estado "
-            "FROM usuarios WHERE usu_username = %s AND usu_estado = %s",
-            (username, 'activo')
+            "FROM usuarios WHERE (usu_username = %s OR usu_email = %s) AND usu_estado = %s",
+            (username, username, 'activo')
         )
         usuario = cursor.fetchone()
         cursor.close()

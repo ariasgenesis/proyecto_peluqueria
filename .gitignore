@@ -1,5 +1,3 @@
-# Reemplazar el archivo con la versión limpia
-@"
 # Entorno virtual
 venv/
 env/
@@ -39,4 +37,7 @@ __pycache__/
 # Archivos de sistema
 Thumbs.db
 desktop.ini
-"@ | Out-File -FilePath .gitignore -Encoding UTF8
+
+# Node / Vue
+frontend_vue/node_modules/
+frontend_vue/dist/

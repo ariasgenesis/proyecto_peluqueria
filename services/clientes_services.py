@@ -9,7 +9,7 @@ from services.base_service import BaseCrudService, ServiceError
 
 class ClienteService(BaseCrudService):
     model = ClienteModel
-    schema = {'usuario_id': {'type': 'int', 'min': 1}, 'nombre': {'type': 'str', 'required': True, 'max': 50}, 'apellido': {'type': 'str', 'required': True, 'max': 50}, 'telefono': {'type': 'str', 'max': 20, 'regex': re.compile(r'^\+?[0-9 ]{7,20}$'), 'regex_error': 'El telefono no tiene un formato valido'}, 'direccion': {'type': 'str', 'max': 150}, 'estado': {'type': 'str', 'default': 'activo', 'enum': ['activo', 'inactivo'], 'lower': True}}
+    schema = {'usuario_id': {'type': 'int', 'min': 1}, 'nombre': {'type': 'str', 'required': True, 'max': 50}, 'apellido': {'type': 'str', 'required': True, 'max': 50}, 'documento': {'type': 'str', 'required': True, 'max': 20}, 'telefono': {'type': 'str', 'max': 20, 'regex': re.compile(r'^\+?[0-9 ]{7,20}$'), 'regex_error': 'El telefono no tiene un formato valido'}, 'direccion': {'type': 'str', 'max': 150}, 'estado': {'type': 'str', 'default': 'activo', 'enum': ['activo', 'inactivo'], 'lower': True}}
 
     def crear(self, data, user_id=None):
         payload = self._validar_payload(data)
@@ -28,12 +28,13 @@ class ClienteService(BaseCrudService):
             )
             usuario_id = cursor.lastrowid
             cursor.execute(
-                "INSERT INTO clientes (cli_usuario_id, cli_nombre, cli_apellido, cli_telefono, cli_direccion, cli_estado) "
-                "VALUES (%s, %s, %s, %s, %s, %s)",
+                "INSERT INTO clientes (cli_usuario_id, cli_nombre, cli_apellido, cli_documento, cli_telefono, cli_direccion, cli_estado) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s)",
                 (
                     usuario_id,
                     payload['nombre'],
                     payload['apellido'],
+                    payload['documento'],
                     payload.get('telefono'),
                     payload.get('direccion'),
                     payload.get('estado') or 'activo',
@@ -77,22 +78,32 @@ class ClienteService(BaseCrudService):
                 (username, password_hash, email),
             )
             usuario_id = cursor.lastrowid
+            documento = str(data.get('documento', '')).strip()
+            if not documento:
+                raise ServiceError('El campo "documento" es requerido')
             cursor.execute(
-                "INSERT INTO clientes (cli_usuario_id, cli_nombre, cli_apellido, cli_telefono, cli_direccion, cli_estado) "
-                "VALUES (%s, %s, %s, %s, %s, 'activo')",
+                "INSERT INTO clientes (cli_usuario_id, cli_nombre, cli_apellido, cli_documento, cli_telefono, cli_direccion, cli_estado) "
+                "VALUES (%s, %s, %s, %s, %s, %s, 'activo')",
                 (
                     usuario_id,
                     data['nombre'].strip(),
                     data['apellido'].strip(),
+                    documento,
                     str(telefono).strip() if telefono else None,
                     data.get('direccion'),
                 ),
             )
             cliente_id = cursor.lastrowid
             self.mysql.connection.commit()
-        except Exception:
+        except ServiceError:
             self.mysql.connection.rollback()
             raise
+        except Exception as exc:
+            self.mysql.connection.rollback()
+            msg = str(exc).lower()
+            if 'duplicate' in msg:
+                raise ServiceError('Ya existe un usuario o documento con esos datos', 409)
+            raise ServiceError('No se pudo registrar el cliente')
         finally:
             cursor.close()
 

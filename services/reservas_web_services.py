@@ -1,5 +1,7 @@
 from datetime import datetime
 from decimal import Decimal
+import hashlib
+import os
 
 from models.reservas_web_model import ReservaWebModel
 from services.base_service import BaseCrudService, ServiceError
@@ -22,6 +24,77 @@ class ReservaWebService(BaseCrudService):
         'referencia_pago': {'type': 'str', 'max': 255},
         'transaccion_id': {'type': 'str', 'max': 255},
     }
+
+    def listar_admin(self, page=1, per_page=20, estado=None):
+        cursor = self.mysql.connection.cursor()
+        where = "WHERE 1=1"
+        params = []
+        if estado:
+            where += " AND r.res_estado = %s"
+            params.append(estado)
+        offset = (page - 1) * per_page
+        cursor.execute(
+            f"SELECT r.res_id, r.res_fecha, r.res_hora, r.res_anticipo, r.res_estado, "
+            "r.res_referencia_pago, r.created_at, "
+            "c.cli_nombre, c.cli_apellido, c.cli_telefono, "
+            "e.emp_nombre, e.emp_apellido, "
+            "GROUP_CONCAT(DISTINCT CONCAT(s.ser_nombre, '|', CAST(COALESCE(drv.drv_precio,0) AS CHAR)) "
+            "  ORDER BY s.ser_id SEPARATOR ';;') AS servicios_detalle, "
+            "fac_svc.fac_id, fac_svc.fac_total, fac_svc.fac_saldo_pendiente, "
+            "fac_ant.fac_id "
+            "FROM reservas_web r "
+            "LEFT JOIN clientes c ON c.cli_id = r.res_cliente_id "
+            "LEFT JOIN empleados e ON e.emp_id = r.res_empleado_id "
+            "LEFT JOIN detalle_reservas_web drv ON drv.drv_reserva_id = r.res_id "
+            "LEFT JOIN servicios s ON s.ser_id = drv.drv_servicio_id "
+            "LEFT JOIN facturas fac_svc ON fac_svc.fac_reserva_id = r.res_id AND fac_svc.fac_tipo = 'servicio' "
+            "LEFT JOIN facturas fac_ant ON fac_ant.fac_reserva_id = r.res_id AND fac_ant.fac_tipo = 'anticipo' "
+            f"{where} "
+            "GROUP BY r.res_id, fac_svc.fac_id, fac_svc.fac_total, fac_svc.fac_saldo_pendiente, fac_ant.fac_id "
+            "ORDER BY r.res_id DESC "
+            "LIMIT %s OFFSET %s",
+            params + [per_page, offset],
+        )
+        rows = cursor.fetchall()
+        cursor.execute(f"SELECT COUNT(DISTINCT r.res_id) FROM reservas_web r {where}", params)
+        total = cursor.fetchone()[0]
+        cursor.close()
+
+        def parse_servicios(raw):
+            if not raw:
+                return []
+            result = []
+            for item in raw.split(';;'):
+                parts = item.split('|')
+                result.append({'nombre': parts[0], 'precio': float(parts[1]) if len(parts) > 1 else 0})
+            return result
+
+        return {
+            'data': [
+                {
+                    'id_reserva':      r[0],
+                    'fecha':           str(r[1]),
+                    'hora':            str(r[2]),
+                    'anticipo':        float(r[3] or 0),
+                    'estado':          r[4],
+                    'referencia':      r[5],
+                    'created_at':      str(r[6]),
+                    'cliente':         f'{r[7] or ""} {r[8] or ""}'.strip(),
+                    'telefono':        r[9] or '',
+                    'empleado':        f'{r[10] or ""} {r[11] or ""}'.strip(),
+                    'servicios':       ', '.join(s['nombre'] for s in parse_servicios(r[12])),
+                    'servicios_items': parse_servicios(r[12]),
+                    'fac_servicio_id': r[13],
+                    'total':           float(r[14] or 0),
+                    'saldo_pendiente': float(r[15] or 0),
+                    'fac_anticipo_id': r[16],
+                }
+                for r in rows
+            ],
+            'total': total,
+            'page': page,
+            'per_page': per_page,
+        }
 
     def obtener_por_id(self, record_id):
         reserva = self.model.obtener_por_id(self.mysql, record_id)
@@ -155,11 +228,18 @@ class ReservaWebService(BaseCrudService):
             
         MovimientoService(self.mysql).registrar(user_id, 'crear_reserva_web', f'Reserva web #{res_id} creada')
         
+        amount_cents = int(payload['anticipo'] * 100)
+        public_key = os.getenv('WOMPI_PUBLIC_KEY', '')
+        integrity_secret = os.getenv('WOMPI_INTEGRITY_SECRET', '')
+        integrity_str = f"{referencia}{amount_cents}COP{integrity_secret}"
+        integrity_hash = hashlib.sha256(integrity_str.encode()).hexdigest()
         reserva['wompi'] = {
             'sandbox': True,
+            'public_key': public_key,
             'reference': referencia,
-            'amount_in_cents': int(payload['anticipo'] * 100),
+            'amount_in_cents': amount_cents,
             'currency': 'COP',
+            'integrity_hash': integrity_hash,
         }
         return reserva
 

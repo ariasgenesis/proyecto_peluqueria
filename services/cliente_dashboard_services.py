@@ -70,8 +70,39 @@ class ClienteDashboardService:
             for r in rows
         ]
 
+    def mis_reservas(self, usuario_id):
+        cliente_id = self._cliente_id(usuario_id)
+        cursor = self.mysql.connection.cursor()
+        cursor.execute(
+            "SELECT r.res_id, r.res_fecha, r.res_hora, r.res_anticipo, r.res_estado, "
+            "e.emp_nombre, e.emp_apellido, GROUP_CONCAT(s.ser_nombre SEPARATOR ', ') "
+            "FROM reservas_web r "
+            "LEFT JOIN empleados e ON e.emp_id = r.res_empleado_id "
+            "LEFT JOIN detalle_reservas_web drv ON drv.drv_reserva_id = r.res_id "
+            "LEFT JOIN servicios s ON s.ser_id = drv.drv_servicio_id "
+            "WHERE r.res_cliente_id = %s "
+            "GROUP BY r.res_id, r.res_fecha, r.res_hora, r.res_anticipo, r.res_estado, e.emp_nombre, e.emp_apellido "
+            "ORDER BY r.res_fecha DESC, r.res_hora DESC",
+            (cliente_id,),
+        )
+        rows = cursor.fetchall()
+        cursor.close()
+        return [
+            {
+                'id_reserva': r[0],
+                'fecha': str(r[1]),
+                'hora': str(r[2]),
+                'anticipo': float(r[3] or 0),
+                'estado': r[4],
+                'empleado': f'{r[5] or ""} {r[6] or ""}'.strip(),
+                'servicio': r[7],
+            }
+            for r in rows
+        ]
+
     def historial_basico(self, usuario_id):
         return {
             'citas': self.mis_citas(usuario_id),
             'facturas': self.mis_facturas(usuario_id),
+            'reservas': self.mis_reservas(usuario_id),
         }
