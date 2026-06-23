@@ -1,5 +1,6 @@
 import hashlib
 import os
+import time
 
 import requests as http_requests
 from flask import Blueprint, current_app, g, request
@@ -76,6 +77,18 @@ def crear_pago_nequi():
     if not private_key:
         return error_response('WOMPI_PRIVATE_KEY no está configurada en el servidor', 503)
 
+    # Referencia única por intento (Wompi rechaza referencias reutilizadas)
+    referencia_wompi = f"{referencia}-{int(time.time())}"
+
+    # Actualizar res_referencia_pago en la DB para que el webhook encuentre la reserva
+    cursor2 = current_app.mysql.connection.cursor()
+    cursor2.execute(
+        "UPDATE reservas_web SET res_referencia_pago = %s WHERE res_referencia_pago = %s",
+        (referencia_wompi, referencia),
+    )
+    current_app.mysql.connection.commit()
+    cursor2.close()
+
     # Obtener acceptance_token requerido por Wompi
     public_key = os.getenv('WOMPI_PUBLIC_KEY', '')
     try:
@@ -86,7 +99,7 @@ def crear_pago_nequi():
 
     # Recomputar hash server-side con el secret real (no confiar en el del frontend)
     integrity_secret = os.getenv('WOMPI_INTEGRITY_SECRET', '')
-    integrity_str = f"{referencia}{int(amount_cents)}COP{integrity_secret}"
+    integrity_str = f"{referencia_wompi}{int(amount_cents)}COP{integrity_secret}"
     signature = hashlib.sha256(integrity_str.encode()).hexdigest()
 
     wompi_payload = {
@@ -94,7 +107,7 @@ def crear_pago_nequi():
         'currency': 'COP',
         'customer_email': email,
         'payment_method': {'type': 'NEQUI', 'phone_number': telefono},
-        'reference': referencia,
+        'reference': referencia_wompi,
         'signature': signature,
         'acceptance_token': acceptance_token,
     }
