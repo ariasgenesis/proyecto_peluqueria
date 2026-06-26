@@ -105,7 +105,13 @@ class DashboardService:
         row = cursor.fetchone()
         if not row:
             cursor.close()
-            return {'citas_dia': [], 'proximas_citas': [], 'actividad_reciente': []}
+            return {
+                'metricas': {'citas_hoy': 0, 'citas_pendientes': 0, 'proximas_citas': 0, 'completadas_hoy': 0},
+                'citas_hoy': [],
+                'citas_dia': [],
+                'proximas_citas': [],
+                'actividad_reciente': [],
+            }
         empleado_id = row[0]
         cursor.execute(
             "SELECT c.cit_id, c.cit_cliente_id, c.cit_fecha, c.cit_hora, c.cit_estado, "
@@ -133,8 +139,30 @@ class DashboardService:
             (usuario_id,)
         )
         actividad = cursor.fetchall()
+        metricas = {
+            'citas_hoy': len(citas_dia),
+            'citas_pendientes': sum(1 for r in citas_dia if r[4] == 'pendiente'),
+            'proximas_citas': len(proximas),
+            'completadas_hoy': sum(1 for r in citas_dia if r[4] == 'completada'),
+        }
         cursor.close()
+        citas_dia_data = [
+            {
+                'id_cita': r[0],
+                'cliente_id': r[1],
+                'fecha': str(r[2]),
+                'hora': str(r[3]),
+                'estado': r[4],
+                'cliente_nombre': r[5],
+                'cliente_apellido': r[6],
+                'empleado_nombre': '',
+                'empleado_apellido': '',
+            }
+            for r in citas_dia
+        ]
         return {
+            'metricas': metricas,
+            'citas_hoy': citas_dia_data,
             'citas_dia': [
                 {
                     'id_cita': r[0],
@@ -167,14 +195,16 @@ class DashboardService:
 
     def kanban_citas(self):
         cursor = self.mysql.connection.cursor()
-        # fac_tipo='servicio' evita filas duplicadas cuando Wompi genera anticipo+servicio
         cursor.execute(
             "SELECT c.cit_id, c.cit_fecha, c.cit_hora, c.cit_estado, "
-            "cli.cli_nombre, cli.cli_apellido, c.cit_cliente_id, "
+            "cli.cli_nombre, cli.cli_apellido, cli.cli_documento, cli.cli_telefono, c.cit_cliente_id, "
             "emp.emp_nombre, emp.emp_apellido, c.cit_empleado_id, "
             "GROUP_CONCAT(s.ser_nombre ORDER BY s.ser_id SEPARATOR ', ') AS servicios, "
             "COALESCE(SUM(s.ser_duracion), 0) AS duracion, "
-            "f.fac_id, f.fac_estado, f.fac_saldo_pendiente, f.fac_anticipo, f.fac_total, "
+            "f.fac_id, f.fac_estado, "
+            "COALESCE(f.fac_total, SUM(dc.dci_precio), 0) AS total, "
+            "COALESCE(f.fac_anticipo, 0) AS anticipo, "
+            "COALESCE(f.fac_saldo_pendiente, COALESCE(SUM(dc.dci_precio), 0), 0) AS saldo_pendiente, "
             "CASE WHEN NOW() > DATE_ADD(TIMESTAMP(c.cit_fecha, c.cit_hora), "
             "INTERVAL COALESCE(SUM(s.ser_duracion), 0) MINUTE) "
             "AND c.cit_estado NOT IN ('completada', 'cancelada') THEN 1 ELSE 0 END AS retrasada "
@@ -187,41 +217,43 @@ class DashboardService:
             "  AND f.fac_tipo = 'servicio' AND f.fac_estado <> 'cancelada' "
             "WHERE c.cit_estado <> 'cancelada' "
             "GROUP BY c.cit_id, c.cit_fecha, c.cit_hora, c.cit_estado, "
-            "cli.cli_nombre, cli.cli_apellido, c.cit_cliente_id, "
+            "cli.cli_nombre, cli.cli_apellido, cli.cli_documento, cli.cli_telefono, c.cit_cliente_id, "
             "emp.emp_nombre, emp.emp_apellido, c.cit_empleado_id, "
             "f.fac_id, f.fac_estado, f.fac_saldo_pendiente, f.fac_anticipo, f.fac_total "
             "ORDER BY c.cit_fecha ASC, c.cit_hora ASC"
         )
         rows = cursor.fetchall()
         cursor.close()
-        columnas = {'confirmadas': [], 'liquidacion_pendiente': [], 'finalizadas': []}
+        columnas = {'pendientes': [], 'confirmadas': [], 'completadas': []}
         for r in rows:
-            estado_cita    = r[3]
-            saldo          = float(r[14] or 0)
+            estado_cita = r[3]
             tarjeta = {
                 'id_cita':        r[0],
                 'fecha':          str(r[1]),
                 'hora':           str(r[2]),
                 'estado':         estado_cita,
                 'cliente':        f'{r[4] or ""} {r[5] or ""}'.strip(),
-                'cliente_id':     r[6],
-                'empleado':       f'{r[7] or ""} {r[8] or ""}'.strip(),
-                'empleado_id':    r[9],
-                'servicio':       r[10],
-                'duracion':       int(r[11] or 0),
-                'factura_id':     r[12],
-                'factura_estado': r[13],
-                'saldo_pendiente': saldo,
-                'anticipo':       float(r[15] or 0),
+                'cliente_documento': r[6],
+                'cli_documento':  r[6],
+                'cliente_telefono': r[7],
+                'cliente_id':     r[8],
+                'empleado':       f'{r[9] or ""} {r[10] or ""}'.strip(),
+                'empleado_id':    r[11],
+                'servicio':       r[12],
+                'duracion':       int(r[13] or 0),
+                'factura_id':     r[14],
+                'factura_estado': r[15],
                 'total':          float(r[16] or 0),
-                'retraso':        bool(r[17]),
+                'anticipo':       float(r[17] or 0),
+                'saldo_pendiente': float(r[18] or 0),
+                'retraso':        bool(r[19]),
             }
-            if estado_cita == 'completada' and saldo == 0:
-                columnas['finalizadas'].append(tarjeta)
-            elif estado_cita == 'completada' and saldo > 0:
-                columnas['liquidacion_pendiente'].append(tarjeta)
-            else:
+            if estado_cita == 'pendiente':
+                columnas['pendientes'].append(tarjeta)
+            elif estado_cita == 'confirmada':
                 columnas['confirmadas'].append(tarjeta)
+            elif estado_cita == 'completada':
+                columnas['completadas'].append(tarjeta)
         return columnas
 
     def alertas(self):

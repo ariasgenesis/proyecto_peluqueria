@@ -59,12 +59,20 @@ def slots_disponibles():
     resultado = []
     for hora in SLOTS_DIA:
         try:
-            cita_service.buscar_empleado_disponible(
-                empleado_id,
-                fecha,
-                hora,
-                servicios_ids=servicios_ids or None,
-            )
+            if empleado_id:
+                cita_service.validar_disponibilidad_publica(
+                    empleado_id,
+                    fecha,
+                    hora,
+                    servicios_ids=servicios_ids or None,
+                )
+            else:
+                cita_service.buscar_empleado_disponible(
+                    None,
+                    fecha,
+                    hora,
+                    servicios_ids=servicios_ids or None,
+                )
             disponible = True
         except (ServiceError, Exception):
             disponible = False

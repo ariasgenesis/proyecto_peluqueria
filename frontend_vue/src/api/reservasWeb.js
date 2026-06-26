@@ -8,3 +8,6 @@ export const listarReservasWeb = (params) =>
 
 export const cancelarReservaWeb = (id) =>
   apiClient.post(`/reservas_web/${id}/cancelar`).then(obj)
+
+export const actualizarReservaWeb = (id, data) =>
+  apiClient.put(`/reservas_web/${id}`, data).then(obj)

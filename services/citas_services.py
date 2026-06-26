@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 
 from models.citas_model import CitaModel
@@ -67,42 +67,193 @@ class CitaService(BaseCrudService):
             raise ServiceError('Servicio no encontrado o inactivo', 404)
         return int(row[0])
 
+    def _normalizar_servicios(self, servicios, cursor):
+        if servicios is None:
+            return [], Decimal('0'), 30
+        if not isinstance(servicios, list) or not servicios:
+            raise ServiceError('El campo "servicios" debe ser una lista con al menos un servicio')
+        normalizados = []
+        total = Decimal('0')
+        duracion = 0
+        for item in servicios:
+            if isinstance(item, dict):
+                servicio_id = item.get('servicio_id') or item.get('id_servicio')
+            else:
+                servicio_id = item
+            if isinstance(servicio_id, bool) or not isinstance(servicio_id, int) or servicio_id <= 0:
+                raise ServiceError('El campo "servicio_id" debe ser un entero mayor que cero')
+            cursor.execute(
+                "SELECT ser_precio, ser_duracion FROM servicios WHERE ser_id = %s AND ser_estado = 'activo'",
+                (servicio_id,),
+            )
+            servicio = cursor.fetchone()
+            if not servicio:
+                raise ServiceError(f'Servicio #{servicio_id} no encontrado o inactivo', 404)
+            precio = Decimal(str(servicio[0]))
+            if precio < 0:
+                raise ServiceError('El precio del servicio no puede ser negativo')
+            normalizados.append({'servicio_id': servicio_id, 'precio': precio})
+            total += precio
+            duracion += int(servicio[1])
+        return normalizados, total, duracion
+
+    def _normalizar_anticipo(self, value, total):
+        anticipo = Decimal(str(value or 0))
+        if anticipo < 0:
+            raise ServiceError('El anticipo no puede ser negativo')
+        if anticipo > total:
+            raise ServiceError('El anticipo no puede superar el total de la factura')
+        return anticipo
+
+    def _estado_factura(self, total, anticipo):
+        saldo = max(total - anticipo, Decimal('0'))
+        if saldo == 0:
+            return 'pagada', saldo
+        if anticipo > 0:
+            return 'parcial', saldo
+        return 'pendiente', saldo
+
+    def _estado_cita_por_anticipo(self, estado_solicitado, anticipo):
+        if estado_solicitado == 'cancelada':
+            return 'cancelada'
+        if estado_solicitado == 'completada':
+            return 'completada'
+        if Decimal(str(anticipo or 0)) > 0:
+            return 'confirmada'
+        return 'pendiente'
+
+    def _guardar_detalle_cita(self, cursor, cita_id, servicios, reemplazar=False):
+        if reemplazar:
+            cursor.execute("DELETE FROM detalle_citas WHERE dci_cita_id = %s", (cita_id,))
+        for servicio in servicios:
+            cursor.execute(
+                "INSERT INTO detalle_citas (dci_cita_id, dci_servicio_id, dci_precio) VALUES (%s, %s, %s)",
+                (cita_id, servicio['servicio_id'], servicio['precio']),
+            )
+
+    def _crear_o_actualizar_factura_servicio(self, cursor, cita_id, total, anticipo=None, user_id=None, reserva_id=None):
+        cursor.execute(
+            "SELECT fac_id, fac_anticipo FROM facturas "
+            "WHERE fac_cita_id = %s AND fac_tipo = 'servicio' AND fac_estado <> 'cancelada' "
+            "ORDER BY fac_id DESC LIMIT 1",
+            (cita_id,),
+        )
+        factura = cursor.fetchone()
+        if factura:
+            factura_id, anticipo_actual = factura
+            anticipo = Decimal(str(anticipo_actual or 0)) if anticipo is None else self._normalizar_anticipo(anticipo, total)
+            estado, saldo = self._estado_factura(total, anticipo)
+            cursor.execute(
+                "UPDATE facturas SET fac_total = %s, fac_anticipo = %s, fac_saldo_pendiente = %s, fac_estado = %s, "
+                "fac_modificada_por = %s, fac_fecha_modificacion = NOW() WHERE fac_id = %s",
+                (total, anticipo, saldo, estado, user_id, factura_id),
+            )
+            return factura_id
+
+        anticipo = self._normalizar_anticipo(anticipo, total)
+        estado, saldo = self._estado_factura(total, anticipo)
+        cursor.execute(
+            "INSERT INTO facturas (fac_cita_id, fac_reserva_id, fac_fecha, fac_total, fac_anticipo, fac_saldo_pendiente, "
+            "fac_tipo, fac_estado, fac_generada_por, fac_inventario_procesado) "
+            "VALUES (%s, %s, CURDATE(), %s, %s, %s, 'servicio', %s, %s, 0)",
+            (cita_id, reserva_id, total, anticipo, saldo, estado, user_id),
+        )
+        return cursor.lastrowid
+
     def _intervalos_se_solapan(self, inicio_a, fin_a, inicio_b, fin_b):
         return inicio_a < fin_b and fin_a > inicio_b
 
-    def _validar_disponibilidad(self, empleado_id, fecha, hora, duracion_minutos=30, cita_id=None, reserva_id=None, cursor=None):
+    def _validar_disponibilidad(self, empleado_id, fecha, hora, duracion_minutos=30, cita_id=None, reserva_id=None, cursor=None, validar_horario=True):
         close_cursor = cursor is None
         cursor = cursor or self.mysql.connection.cursor()
 
         fecha_obj = datetime.strptime(fecha, '%Y-%m-%d')
-        dia_semana = self.dias_semana[fecha_obj.weekday()]
+        hoy = datetime.now().date()
+
+        if fecha_obj.date() < hoy:
+            if close_cursor:
+                cursor.close()
+            raise ServiceError(
+            'No se pueden agendar citas en fechas anteriores'
+        )
+
         cursor.execute("SELECT emp_id FROM empleados WHERE emp_id = %s AND emp_estado = 'activo'", (empleado_id,))
         if not cursor.fetchone():
             if close_cursor:
                 cursor.close()
             raise ServiceError('Empleado no encontrado o inactivo', 404)
 
-        cursor.execute(
-            "SELECT hor_hora_inicio, hor_hora_fin FROM horarios "
-            "WHERE hor_empleado_id = %s AND hor_dia_semana = %s",
-            (empleado_id, dia_semana)
-        )
-        horario = cursor.fetchone()
-        if not horario:
+        horario = None
+        if validar_horario:
+            dia_semana = self.dias_semana[fecha_obj.weekday()]
+            cursor.execute(
+                "SELECT hor_hora_inicio, hor_hora_fin FROM horarios "
+                "WHERE hor_empleado_id = %s AND hor_dia_semana = %s",
+                (empleado_id, dia_semana)
+            )
+            horario = cursor.fetchone()
+        if validar_horario and not horario:
             # Solo bloquear si el empleado tiene horarios configurados pero no para este día.
             # Si no tiene ningún horario configurado aún, se omite la validación.
             cursor.execute("SELECT COUNT(*) FROM horarios WHERE hor_empleado_id = %s", (empleado_id,))
-            if cursor.fetchone()[0] > 0:
+            if (
+                cursor.fetchone()[0] > 0
+            ):
+                
                 if close_cursor:
                     cursor.close()
-                raise ServiceError('El empleado no tiene horario laboral para esa fecha')
+                raise ServiceError(
+                    'El empleado no tiene horario laboral para esa fecha'
+                )
 
         hora_normalizada = self._normalizar_hora(hora)
         inicio = self._time_to_seconds(hora_normalizada)
+
+        hora_apertura = 8 * 3600      # 08:00
+        hora_cierre = 21 * 3600       # 21:00
+        fin = inicio + (int(duracion_minutos) * 60)
+        if inicio < hora_apertura:
+            if close_cursor:
+                cursor.close()
+            raise ServiceError(
+            'La hora de la cita debe ser a partir de las 08:00 AM'
+        )
+
+        if inicio >= hora_cierre or fin > hora_cierre:
+            if close_cursor:
+                cursor.close()
+            raise ServiceError(
+                'La hora de la cita debe ser antes de las 09:00 PM'
+            )
+
+        if fecha_obj.date() == hoy:
+            ahora = datetime.now()
+
+            segundos_actuales = (
+                ahora.hour * 3600 +
+                ahora.minute * 60 +
+                ahora.second
+            )
+
+            if inicio <= segundos_actuales:
+                if close_cursor:
+                    cursor.close()
+                raise ServiceError(
+                    'La hora seleccionada ya ha pasado'
+                )
+
         fin = inicio + (int(duracion_minutos) * 60)
 
         # Validar horario laboral solo si está configurado
-        if horario and (self._time_to_seconds(horario[0]) > inicio or self._time_to_seconds(horario[1]) < fin):
+        if (
+            validar_horario
+            and horario
+            and (
+                self._time_to_seconds(horario[0]) > inicio
+                or
+                self._time_to_seconds(horario[1]) < fin
+            )
+        ):
             if close_cursor:
                 cursor.close()
             raise ServiceError('La cita esta fuera del horario laboral del empleado')
@@ -167,8 +318,9 @@ class CitaService(BaseCrudService):
 
         if close_cursor:
             cursor.close()
+            
 
-    def validar_disponibilidad_publica(self, empleado_id, fecha, hora, servicio_id=None, duracion_minutos=None, cita_id=None, reserva_id=None, cursor=None, servicios_ids=None):
+    def validar_disponibilidad_publica(self, empleado_id, fecha, hora, servicio_id=None, duracion_minutos=None, cita_id=None, reserva_id=None, cursor=None, servicios_ids=None,):
         duracion = duracion_minutos
         if duracion is None:
             if servicios_ids:
@@ -217,12 +369,53 @@ class CitaService(BaseCrudService):
         raise ServiceError('No hay empleados disponibles para los servicios en el horario seleccionado', 409)
 
     def crear(self, data, user_id=None):
+        if not isinstance(data, dict):
+            raise ServiceError('El cuerpo de la solicitud debe ser un objeto JSON')
+
+        servicios_input = data.get('servicios')
+        anticipo_input = data.get('anticipo', 0)
         payload = self._validar_payload(data)
         payload['creado_por'] = payload.get('creado_por') or user_id
         if not payload['creado_por']:
             raise ServiceError('No se pudo identificar el usuario creador')
-        self._validar_disponibilidad(payload['empleado_id'], payload['fecha'], payload['hora'])
-        cita = self.model.crear(self.mysql, **payload)
+
+        cursor = self.mysql.connection.cursor()
+        try:
+            servicios, total, duracion = self._normalizar_servicios(servicios_input, cursor)
+            anticipo = self._normalizar_anticipo(anticipo_input, total)
+            self._validar_disponibilidad(
+                payload['empleado_id'],
+                payload['fecha'],
+                payload['hora'],
+                duracion,
+                cursor=cursor,
+                validar_horario=payload.get('origen') == 'web',
+            )
+            cursor.execute(
+                "INSERT INTO citas (cit_cliente_id, cit_empleado_id, cit_fecha, cit_hora, cit_origen, cit_estado, cit_creado_por) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                (
+                    payload['cliente_id'],
+                    payload['empleado_id'],
+                    payload['fecha'],
+                    payload['hora'],
+                    payload.get('origen'),
+                    self._estado_cita_por_anticipo(payload.get('estado'), anticipo),
+                    payload.get('creado_por'),
+                ),
+            )
+            cita_id = cursor.lastrowid
+            if servicios:
+                self._guardar_detalle_cita(cursor, cita_id, servicios)
+                self._crear_o_actualizar_factura_servicio(cursor, cita_id, total, anticipo, payload['creado_por'])
+            self.mysql.connection.commit()
+        except Exception:
+            self.mysql.connection.rollback()
+            raise
+        finally:
+            cursor.close()
+
+        cita = self.model.obtener_por_id(self.mysql, cita_id)
         MovimientoService(self.mysql).registrar(user_id or payload['creado_por'], 'crear_cita', f'Cita #{cita["id_cita"]} creada')
         return cita
 
@@ -235,7 +428,40 @@ class CitaService(BaseCrudService):
         fecha = payload.get('fecha', actual['fecha'])
         hora = payload.get('hora', actual['hora'])
         if any(key in payload for key in ('empleado_id', 'fecha', 'hora')):
-            self._validar_disponibilidad(empleado_id, fecha, hora, cita_id=record_id)
+            self._validar_disponibilidad(empleado_id, fecha, hora, cita_id=record_id, validar_horario=payload.get('origen', actual.get('origen')) == 'web')
+
+        if payload.get('estado') == 'completada':
+            cursor = self.mysql.connection.cursor()
+            try:
+                field_map = {
+                    'cliente_id': 'cit_cliente_id',
+                    'empleado_id': 'cit_empleado_id',
+                    'fecha': 'cit_fecha',
+                    'hora': 'cit_hora',
+                    'estado': 'cit_estado',
+                    'origen': 'cit_origen',
+                    'creado_por': 'cit_creado_por',
+                }
+                assignments = []
+                values = []
+                for field, column in field_map.items():
+                    if field in payload:
+                        assignments.append(f'{column} = %s')
+                        values.append(payload[field])
+                if assignments:
+                    cursor.execute(
+                        f"UPDATE citas SET {', '.join(assignments)} WHERE cit_id = %s",
+                        tuple(values + [record_id]),
+                    )
+                self.mysql.connection.commit()
+            except Exception:
+                self.mysql.connection.rollback()
+                raise
+            finally:
+                cursor.close()
+            MovimientoService(self.mysql).registrar(user_id, 'completar_cita', f'Cita #{record_id} completada')
+            return self.model.obtener_por_id(self.mysql, record_id)
+
         cita = self.model.actualizar(self.mysql, record_id, **payload)
         if payload.get('estado') == 'cancelada':
             MovimientoService(self.mysql).registrar(user_id, 'cancelar_cita', f'Cita #{record_id} cancelada')
@@ -257,55 +483,12 @@ class CitaService(BaseCrudService):
 
         servicios = data.get('servicios')
         if servicios is not None:
-            if not isinstance(servicios, list) or not servicios:
-                raise ServiceError('El campo "servicios" debe ser una lista con al menos un servicio')
             cursor = self.mysql.connection.cursor()
             try:
-                cursor.execute("DELETE FROM detalle_citas WHERE dci_cita_id = %s", (record_id,))
-                total = Decimal('0')
-                for item in servicios:
-                    if not isinstance(item, dict):
-                        raise ServiceError('Cada servicio debe ser un objeto')
-                    servicio_id = item.get('servicio_id')
-                    if isinstance(servicio_id, bool) or not isinstance(servicio_id, int) or servicio_id <= 0:
-                        raise ServiceError('El campo "servicio_id" debe ser un entero mayor que cero')
-                    precio = item.get('precio')
-                    if precio is None:
-                        cursor.execute("SELECT ser_precio FROM servicios WHERE ser_id = %s AND ser_estado = 'activo'", (servicio_id,))
-                        servicio = cursor.fetchone()
-                        if not servicio:
-                            raise ServiceError(f'Servicio #{servicio_id} no encontrado o inactivo', 404)
-                        precio = Decimal(str(servicio[0]))
-                    else:
-                        precio = Decimal(str(precio))
-                    if precio < 0:
-                        raise ServiceError('El precio del servicio no puede ser negativo')
-                    cursor.execute(
-                        "INSERT INTO detalle_citas (dci_cita_id, dci_servicio_id, dci_precio) VALUES (%s, %s, %s)",
-                        (record_id, servicio_id, precio),
-                    )
-                    total += precio
-
-                cursor.execute(
-                    "SELECT fac_id, fac_anticipo FROM facturas WHERE fac_cita_id = %s AND fac_estado <> 'cancelada' ORDER BY fac_id DESC LIMIT 1",
-                    (record_id,),
-                )
-                factura = cursor.fetchone()
-                if factura:
-                    factura_id, anticipo = factura
-                    anticipo = Decimal(str(anticipo or 0))
-                    saldo = max(total - anticipo, Decimal('0'))
-                    if saldo == 0:
-                        estado = 'pagada'
-                    elif anticipo > 0:
-                        estado = 'parcial'
-                    else:
-                        estado = 'pendiente'
-                    cursor.execute(
-                        "UPDATE facturas SET fac_total = %s, fac_saldo_pendiente = %s, fac_estado = %s, "
-                        "fac_modificada_por = %s, fac_fecha_modificacion = NOW() WHERE fac_id = %s",
-                        (total, saldo, estado, user_id, factura_id),
-                    )
+                servicios_normalizados, total, _duracion = self._normalizar_servicios(servicios, cursor)
+                anticipo = data.get('anticipo')
+                self._guardar_detalle_cita(cursor, record_id, servicios_normalizados, reemplazar=True)
+                self._crear_o_actualizar_factura_servicio(cursor, record_id, total, anticipo, user_id)
                 self.mysql.connection.commit()
             except Exception:
                 self.mysql.connection.rollback()

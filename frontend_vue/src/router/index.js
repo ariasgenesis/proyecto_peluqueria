@@ -64,11 +64,11 @@ router.beforeEach((to) => {
 
   if (roles && auth.isAuthenticated && !roles.includes(auth.rol)) {
     // Autenticado pero sin rol para esta área -> a su home natural.
-    return auth.isStaff ? { name: 'admin-dashboard' } : { name: 'home' }
+    return auth.isStaff ? { name: 'admin-dashboard' } : { name: 'mi-cuenta' }
   }
 
   if (to.meta.guestOnly && auth.isAuthenticated) {
-    return auth.isStaff ? { name: 'admin-dashboard' } : { name: 'home' }
+    return auth.isStaff ? { name: 'admin-dashboard' } : { name: 'mi-cuenta' }
   }
 
   return true

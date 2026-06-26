@@ -48,3 +48,4 @@ class WompiWebhookService:
         if not referencia or not transaccion_id:
             raise ServiceError('Evento Wompi sin referencia o transaccion')
         return ReservaWebService(self.mysql).confirmar_pago_wompi(referencia, transaccion_id)
+

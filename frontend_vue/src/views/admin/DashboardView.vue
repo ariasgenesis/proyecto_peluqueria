@@ -1,15 +1,18 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { RouterLink } from 'vue-router'
-import { getDashboardAdmin, getDashboardAlertas, fmtCOP } from '@/api/admin'
+import { getDashboardAdmin, getDashboardEmpleado, getDashboardAlertas, fmtCOP } from '@/api/admin'
+import { useAuthStore } from '@/stores/auth'
 
 const loading    = ref(true)
 const loadingAlt = ref(true)
 const error      = ref('')
 const metricas   = ref({})
 const citasHoy   = ref([])
+const proximasCitas = ref([])
 const stockBajo  = ref([])
 const retrasadas = ref([])
+const auth       = useAuthStore()
 
 const hoy = (() => {
   const d = new Date()
@@ -20,10 +23,12 @@ const hoy = (() => {
 
 onMounted(async () => {
   // Llamadas independientes: si alertas falla, el resumen principal sigue visible
-  getDashboardAdmin()
+  const resumenRequest = auth.rol === 'empleado' ? getDashboardEmpleado : getDashboardAdmin
+  resumenRequest()
     .then(resumen => {
       metricas.value = resumen.metricas  || {}
-      citasHoy.value = resumen.citas_hoy || []
+      citasHoy.value = resumen.citas_hoy || resumen.citas_dia || []
+      proximasCitas.value = resumen.proximas_citas || []
     })
     .catch(e => { error.value = e?.response?.data?.message || 'Error al cargar métricas' })
     .finally(() => { loading.value = false })
@@ -37,7 +42,28 @@ onMounted(async () => {
     .finally(() => { loadingAlt.value = false })
 })
 
-const stats = computed(() => [
+const stats = computed(() => auth.rol === 'empleado' ? [
+  {
+    label: 'Citas hoy', icon: 'cal', accent: '#B0455F',
+    value: metricas.value.citas_hoy ?? 'â€”',
+    sub: `${metricas.value.citas_pendientes ?? 0} pendientes`,
+  },
+  {
+    label: 'Proximas', icon: 'cal', accent: '#16a34a',
+    value: metricas.value.proximas_citas ?? proximasCitas.value.length,
+    sub: 'agenda asignada',
+  },
+  {
+    label: 'Completadas', icon: 'receipt', accent: '#d97706',
+    value: metricas.value.completadas_hoy ?? 0,
+    sub: 'finalizadas hoy',
+  },
+  {
+    label: 'Pendientes', icon: 'money', accent: '#7c3aed',
+    value: metricas.value.citas_pendientes ?? 0,
+    sub: 'por atender',
+  },
+] : [
   {
     label: 'Citas hoy',        icon: 'cal',      accent: '#B0455F',
     value: metricas.value.citas_hoy ?? '—',
@@ -157,6 +183,23 @@ const badgeStyle = (estado) => {
               <span class="badge" :style="{ background: badgeStyle(c.estado).bg, color: badgeStyle(c.estado).color }">{{ badgeStyle(c.estado).label }}</span>
             </div>
           </div>
+          <template v-if="auth.rol === 'empleado'">
+            <div class="panel__head" style="margin-top:16px">
+              <div class="panel__title">Proximas citas</div>
+            </div>
+            <p v-if="!proximasCitas.length" style="font-size:13px;color:#a59a8d;text-align:center;padding:12px 0">Sin proximas citas</p>
+            <div v-for="c in proximasCitas" :key="'prox-' + c.id_cita" class="cita-row">
+              <div class="cita-row__avatar">{{ initials(c.cliente_nombre, c.cliente_apellido) }}</div>
+              <div class="cita-row__info">
+                <div class="cita-row__name">{{ c.cliente_nombre }} {{ c.cliente_apellido }}</div>
+                <div class="cita-row__meta">{{ c.fecha }}</div>
+              </div>
+              <div class="cita-row__right">
+                <div class="cita-row__time">{{ (c.hora || '').slice(0,5) }}</div>
+                <span class="badge" :style="{ background: badgeStyle(c.estado).bg, color: badgeStyle(c.estado).color }">{{ badgeStyle(c.estado).label }}</span>
+              </div>
+            </div>
+          </template>
         </div>
       </div>
 

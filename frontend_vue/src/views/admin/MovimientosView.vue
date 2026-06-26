@@ -16,7 +16,16 @@ const movimientos = computed(() => {
   let list = allMovimientos.value
   if (filtroTipo.value !== 'todos') list = list.filter(m => m.tipo === filtroTipo.value)
   const s = q.value.trim().toLowerCase()
-  if (s) list = list.filter(m => (m.descripcion || '').toLowerCase().includes(s))
+  if (s) list = list.filter(m =>
+    (m.descripcion || '').toLowerCase().includes(s) ||
+    (m.producto || '').toLowerCase().includes(s) ||
+    (m.producto_nombre || '').toLowerCase().includes(s) ||
+    (m.usuario || '').toLowerCase().includes(s) ||
+    (m.usuario_nombre || '').toLowerCase().includes(s) ||
+    String(m.producto_id || '').includes(s) ||
+    String(m.usuario_id || '').includes(s) ||
+    (m.tipo || '').toLowerCase().includes(s)
+  )
   return list
 })
 
@@ -62,17 +71,21 @@ function cantSign(m)  { return m.tipo === 'salida' ? -m.cantidad : m.cantidad }
           <tr>
             <th>Fecha</th>
             <th>Tipo</th>
+            <th>Producto</th>
+            <th>Usuario</th>
             <th>Descripción</th>
             <th class="tc">Cant.</th>
           </tr>
         </thead>
         <tbody>
-          <tr v-if="loading"><td colspan="4" style="padding:32px;text-align:center;color:#a59a8d">Cargando…</td></tr>
-          <tr v-for="m in movimientos" :key="m.id_movimiento" class="table__row">
+          <tr v-if="loading"><td colspan="6" style="padding:32px;text-align:center;color:#a59a8d">Cargando…</td></tr>
+          <tr v-for="m in movimientos" :key="m.id_movimiento_inv || m.id_movimiento" class="table__row">
             <td class="td-muted td-nowrap">{{ fmtFecha(m.fecha) }}<br><span class="td-hora">{{ fmtHora(m.fecha) }}</span></td>
             <td>
               <span class="badge" :class="'badge--' + m.tipo">{{ tipoLabel[m.tipo] }}</span>
             </td>
+            <td class="td-muted">{{ m.producto || m.producto_nombre || ('#' + m.producto_id) }}</td>
+            <td class="td-muted">{{ m.usuario || m.usuario_nombre || ('#' + m.usuario_id) }}</td>
             <td class="td-concepto">{{ m.descripcion }}</td>
             <td class="tc">
               <span class="cant" :class="cantSign(m) > 0 ? 'cant--pos' : 'cant--neg'">
@@ -85,7 +98,7 @@ function cantSign(m)  { return m.tipo === 'salida' ? -m.cantidad : m.cantidad }
 
       <!-- tarjetas mobile -->
       <div class="card-list">
-        <div v-for="m in movimientos" :key="m.id_movimiento" class="mov-card">
+        <div v-for="m in movimientos" :key="m.id_movimiento_inv || m.id_movimiento" class="mov-card">
           <div class="mov-card__top">
             <span class="badge" :class="'badge--' + m.tipo">{{ tipoLabel[m.tipo] }}</span>
             <span class="cant" :class="cantSign(m) > 0 ? 'cant--pos' : 'cant--neg'">
@@ -94,7 +107,7 @@ function cantSign(m)  { return m.tipo === 'salida' ? -m.cantidad : m.cantidad }
           </div>
           <div class="mov-card__concepto">{{ m.descripcion }}</div>
           <div class="mov-card__meta">
-            {{ fmtFecha(m.fecha) }} · {{ fmtHora(m.fecha) }}
+            {{ m.producto || m.producto_nombre || ('#' + m.producto_id) }} · {{ m.usuario || m.usuario_nombre || ('#' + m.usuario_id) }} · {{ fmtFecha(m.fecha) }} · {{ fmtHora(m.fecha) }}
           </div>
         </div>
       </div>

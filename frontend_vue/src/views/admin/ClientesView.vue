@@ -23,6 +23,7 @@ const clientes = computed(() => {
   if (!s) return allClientes.value
   return allClientes.value.filter(c =>
     `${c.nombre} ${c.apellido}`.toLowerCase().includes(s) ||
+    (c.documento || '').includes(s) ||
     (c.telefono || '').includes(s) ||
     (c.direccion || '').toLowerCase().includes(s)
   )
@@ -86,7 +87,7 @@ async function remove() {
     <div class="search-wrap">
       <div class="search">
         <svg class="search__ico" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#a59a8d" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.35-4.35"/></svg>
-        <input v-model="q" class="search__input" type="search" placeholder="Buscar por nombre, correo o teléfono…" />
+        <input v-model="q" class="search__input" type="search" placeholder="Buscar por nombre, cédula o teléfono…" />
         <button v-if="q" class="search__clear" @click="q = ''">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8a7f72" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
         </button>
@@ -102,13 +103,14 @@ async function remove() {
         <thead>
           <tr>
             <th>Cliente</th>
+            <th>Documento</th>
             <th>Teléfono</th>
             <th>Dirección</th>
             <th>Estado</th>
           </tr>
         </thead>
         <tbody>
-          <tr v-if="loading"><td colspan="4" style="padding:32px;text-align:center;color:#a59a8d">Cargando…</td></tr>
+          <tr v-if="loading"><td colspan="5" style="padding:32px;text-align:center;color:#a59a8d">Cargando…</td></tr>
           <tr
             v-for="c in clientes"
             :key="c.id_cliente"
@@ -121,6 +123,7 @@ async function remove() {
                 <span class="cli-name">{{ c.nombre }} {{ c.apellido }}</span>
               </div>
             </td>
+            <td class="td-muted">{{ c.documento || '—' }}</td>
             <td class="td-muted">{{ c.telefono || '—' }}</td>
             <td class="td-muted">{{ c.direccion || '—' }}</td>
             <td>
@@ -155,7 +158,7 @@ async function remove() {
             <div class="cli-avatar">{{ initials(c) }}</div>
             <div class="cli-card__info">
               <div class="cli-card__name">{{ c.nombre }} {{ c.apellido }}</div>
-              <div class="cli-card__email">{{ c.telefono || c.direccion || '—' }}</div>
+              <div class="cli-card__email">{{ c.documento || '—' }} · {{ c.telefono || c.direccion || '—' }}</div>
             </div>
             <span class="estado-badge" :class="'estado-badge--' + c.estado">{{ c.estado }}</span>
           </div>

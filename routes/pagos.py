@@ -14,6 +14,8 @@ from controllers.pagos_controllers import (
     cntobtener_pago,
 )
 from middlewares.auth_middleware import role_required
+from services.base_service import ServiceError
+from services.reservas_web_services import ReservaWebService
 
 WOMPI_SANDBOX = 'https://sandbox.wompi.co/v1'
 
@@ -50,22 +52,19 @@ def eliminar_registro(id_pago):
     return cnteliminar_pago(id_pago)
 
 
-# ── Wompi Nequi push ──────────────────────────────────────────────────────────
-
 @pago_bp.route('/nequi', methods=['POST'])
 @role_required('cliente')
 def crear_pago_nequi():
-    """POST /pagos/nequi — inicia transacción Wompi Nequi push."""
+    """POST /pagos/nequi - inicia transaccion Wompi Nequi push."""
     data = request.get_json(silent=True) or {}
-    referencia   = data.get('referencia', '').strip()
+    referencia = data.get('referencia', '').strip()
     amount_cents = data.get('amount_in_cents')
-    telefono     = str(data.get('telefono', '')).strip()
-    integrity    = data.get('integrity_hash', '')
+    telefono = str(data.get('telefono', '')).strip()
 
     if not referencia or not amount_cents or not telefono:
         return error_response('referencia, amount_in_cents y telefono son requeridos', 400)
     if not telefono.isdigit() or len(telefono) < 10:
-        return error_response('Número de celular inválido (mínimo 10 dígitos)', 400)
+        return error_response('Numero de celular invalido (minimo 10 digitos)', 400)
 
     cursor = current_app.mysql.connection.cursor()
     cursor.execute('SELECT usu_email FROM usuarios WHERE usu_id = %s', (g.auth_user['id_usuario'],))
@@ -75,12 +74,10 @@ def crear_pago_nequi():
 
     private_key = os.getenv('WOMPI_PRIVATE_KEY', '')
     if not private_key:
-        return error_response('WOMPI_PRIVATE_KEY no está configurada en el servidor', 503)
+        return error_response('WOMPI_PRIVATE_KEY no esta configurada en el servidor', 503)
 
-    # Referencia única por intento (Wompi rechaza referencias reutilizadas)
     referencia_wompi = f"{referencia}-{int(time.time())}"
 
-    # Actualizar res_referencia_pago en la DB para que el webhook encuentre la reserva
     cursor2 = current_app.mysql.connection.cursor()
     cursor2.execute(
         "UPDATE reservas_web SET res_referencia_pago = %s WHERE res_referencia_pago = %s",
@@ -89,15 +86,13 @@ def crear_pago_nequi():
     current_app.mysql.connection.commit()
     cursor2.close()
 
-    # Obtener acceptance_token requerido por Wompi
     public_key = os.getenv('WOMPI_PUBLIC_KEY', '')
     try:
         acc_resp = http_requests.get(f'{WOMPI_SANDBOX}/merchants/{public_key}', timeout=10)
         acceptance_token = acc_resp.json().get('data', {}).get('presigned_acceptance', {}).get('acceptance_token', '')
     except http_requests.RequestException:
-        return error_response('No se pudo obtener el token de aceptación de Wompi', 502)
+        return error_response('No se pudo obtener el token de aceptacion de Wompi', 502)
 
-    # Recomputar hash server-side con el secret real (no confiar en el del frontend)
     integrity_secret = os.getenv('WOMPI_INTEGRITY_SECRET', '')
     integrity_str = f"{referencia_wompi}{int(amount_cents)}COP{integrity_secret}"
     signature = hashlib.sha256(integrity_str.encode()).hexdigest()
@@ -123,14 +118,13 @@ def crear_pago_nequi():
         if not resp.ok:
             error = body.get('error', {})
             reason = error.get('reason') or error.get('type', 'Error Wompi')
-            # Incluir detalles de campos inválidos si los hay
             messages = error.get('messages', {})
             if messages:
                 detail = '; '.join(f'{k}: {", ".join(v) if isinstance(v, list) else v}' for k, v in messages.items())
-                reason = f'{reason} — {detail}'
+                reason = f'{reason} - {detail}'
             return error_response(reason, 502)
         tx = body.get('data', {})
-        return success_response('Transacción Nequi iniciada', {
+        return success_response('Transaccion Nequi iniciada', {
             'transaction_id': tx.get('id'),
             'status': tx.get('status'),
         })
@@ -142,7 +136,7 @@ def crear_pago_nequi():
 @pago_bp.route('/estado/<transaction_id>', methods=['GET'])
 @role_required('cliente')
 def estado_transaccion(transaction_id):
-    """GET /pagos/estado/<transaction_id> — consulta estado en Wompi."""
+    """GET /pagos/estado/<transaction_id> - consulta y confirma si Wompi aprobo."""
     private_key = os.getenv('WOMPI_PRIVATE_KEY', '')
     try:
         resp = http_requests.get(
@@ -154,10 +148,21 @@ def estado_transaccion(transaction_id):
         if not resp.ok:
             return error_response('No se pudo consultar el estado', 502)
         tx = body.get('data', {})
-        return success_response('Estado de transacción', {
+        confirmacion = None
+        if tx.get('status') == 'APPROVED' and tx.get('reference') and tx.get('id'):
+            try:
+                confirmacion = ReservaWebService(current_app.mysql).confirmar_pago_wompi(
+                    tx.get('reference'),
+                    tx.get('id'),
+                    g.auth_user.get('id_usuario'),
+                )
+            except ServiceError as exc:
+                return error_response(exc.message, exc.status_code)
+        return success_response('Estado de transaccion', {
             'transaction_id': tx.get('id'),
-            'status': tx.get('status'),           # PENDING | APPROVED | DECLINED | VOIDED | ERROR
+            'status': tx.get('status'),
             'reference': tx.get('reference'),
+            'confirmacion': confirmacion,
         })
     except http_requests.RequestException:
         current_app.logger.exception('Error consultando estado Wompi')

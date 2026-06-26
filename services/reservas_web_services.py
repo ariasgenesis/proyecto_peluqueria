@@ -172,6 +172,49 @@ class ReservaWebService(BaseCrudService):
             cursor=cursor,
         )
 
+    def _crear_o_actualizar_factura_servicio(self, cursor, reserva_id, user_id=None):
+        cursor.execute(
+            "SELECT r.res_anticipo, COALESCE(SUM(drv.drv_precio), 0) "
+            "FROM reservas_web r "
+            "LEFT JOIN detalle_reservas_web drv ON drv.drv_reserva_id = r.res_id "
+            "WHERE r.res_id = %s GROUP BY r.res_id, r.res_anticipo",
+            (reserva_id,),
+        )
+        row = cursor.fetchone()
+        if not row:
+            raise ServiceError('Reserva web no encontrada', 404)
+        anticipo = Decimal(str(row[0] or 0))
+        total = Decimal(str(row[1] or 0))
+        if total <= 0:
+            raise ServiceError('La reserva web no tiene servicios para facturar', 409)
+        if anticipo > total:
+            raise ServiceError('El anticipo no puede superar el total de la factura')
+
+        saldo = max(total - anticipo, Decimal('0'))
+        estado_factura = 'pagada' if saldo == 0 else ('parcial' if anticipo > 0 else 'pendiente')
+        cursor.execute(
+            "SELECT fac_id FROM facturas "
+            "WHERE fac_reserva_id = %s AND fac_tipo = 'servicio' AND fac_estado <> 'cancelada' "
+            "ORDER BY fac_id DESC LIMIT 1",
+            (reserva_id,),
+        )
+        factura = cursor.fetchone()
+        if factura:
+            cursor.execute(
+                "UPDATE facturas SET fac_total = %s, fac_anticipo = %s, fac_saldo_pendiente = %s, "
+                "fac_estado = %s, fac_modificada_por = %s, fac_fecha_modificacion = NOW() WHERE fac_id = %s",
+                (total, anticipo, saldo, estado_factura, user_id, factura[0]),
+            )
+            return factura[0]
+
+        cursor.execute(
+            "INSERT INTO facturas (fac_cita_id, fac_reserva_id, fac_fecha, fac_total, fac_anticipo, fac_saldo_pendiente, "
+            "fac_tipo, fac_estado, fac_generada_por, fac_inventario_procesado) "
+            "VALUES (NULL, %s, CURDATE(), %s, %s, %s, 'servicio', %s, %s, 0)",
+            (reserva_id, total, anticipo, saldo, estado_factura, user_id),
+        )
+        return cursor.lastrowid
+
     def crear(self, data, user_id=None):
         # El payload original tiene 'servicios', pero el modelo no. 
         # Extraemos servicios antes de validar con el modelo (o adaptamos el validador)
@@ -219,6 +262,7 @@ class ReservaWebService(BaseCrudService):
                 "INSERT INTO detalle_reservas_web (drv_reserva_id, drv_servicio_id, drv_precio) VALUES (%s, %s, %s)",
                 (res_id, s['id'], s['precio'])
             )
+        self._crear_o_actualizar_factura_servicio(cursor, res_id, user_id)
         self.mysql.connection.commit()
         cursor.close()
 
@@ -248,6 +292,7 @@ class ReservaWebService(BaseCrudService):
         if not actual:
             raise ServiceError('Reserva web no encontrada', 404)
             
+        generar_factura = bool(data.get('generar_factura')) if isinstance(data, dict) else False
         payload = self._validar_payload(data, partial=True)
         
         if actual['estado'] == 'pagada' and payload.get('estado') == 'cancelada':
@@ -278,6 +323,17 @@ class ReservaWebService(BaseCrudService):
         reserva = self.model.actualizar(self.mysql, record_id, **payload)
         if not reserva:
             raise ServiceError('Reserva web no encontrada', 404)
+        if generar_factura:
+            cursor = self.mysql.connection.cursor()
+            try:
+                self._crear_o_actualizar_factura_servicio(cursor, record_id, user_id)
+                self.mysql.connection.commit()
+            except Exception:
+                self.mysql.connection.rollback()
+                raise
+            finally:
+                cursor.close()
+            MovimientoService(self.mysql).registrar(user_id, 'crear_factura', f'Factura de reserva web #{record_id} generada')
         return reserva
 
     def cancelar(self, record_id, user_id=None):
@@ -386,14 +442,30 @@ class ReservaWebService(BaseCrudService):
             
             # 2. Factura de SERVICIO
             saldo = max(total_servicios - Decimal(str(anticipo)), Decimal('0'))
-            estado_factura_servicio = 'pagada' if saldo == 0 else 'pendiente'
+            estado_factura_servicio = 'pagada' if saldo == 0 else ('parcial' if Decimal(str(anticipo or 0)) > 0 else 'pendiente')
             cursor.execute(
-                "INSERT INTO facturas (fac_cita_id, fac_reserva_id, fac_fecha, fac_total, fac_anticipo, fac_saldo_pendiente, "
-                "fac_tipo, fac_estado, fac_generada_por, fac_inventario_procesado) "
-                "VALUES (%s, %s, %s, %s, %s, %s, 'servicio', %s, %s, 0)",
-                (cita_id, reserva_id, fecha_actual, total_servicios, anticipo, saldo, estado_factura_servicio, cliente_usuario_id),
+                "SELECT fac_id FROM facturas "
+                "WHERE fac_reserva_id = %s AND fac_tipo = 'servicio' AND fac_estado <> 'cancelada' "
+                "ORDER BY fac_id DESC LIMIT 1 FOR UPDATE",
+                (reserva_id,),
             )
-            factura_servicio_id = cursor.lastrowid
+            factura_servicio = cursor.fetchone()
+            if factura_servicio:
+                factura_servicio_id = factura_servicio[0]
+                cursor.execute(
+                    "UPDATE facturas SET fac_cita_id = %s, fac_total = %s, fac_anticipo = %s, "
+                    "fac_saldo_pendiente = %s, fac_estado = %s, fac_modificada_por = %s, "
+                    "fac_fecha_modificacion = NOW() WHERE fac_id = %s",
+                    (cita_id, total_servicios, anticipo, saldo, estado_factura_servicio, cliente_usuario_id, factura_servicio_id),
+                )
+            else:
+                cursor.execute(
+                    "INSERT INTO facturas (fac_cita_id, fac_reserva_id, fac_fecha, fac_total, fac_anticipo, fac_saldo_pendiente, "
+                    "fac_tipo, fac_estado, fac_generada_por, fac_inventario_procesado) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, 'servicio', %s, %s, 0)",
+                    (cita_id, reserva_id, fecha_actual, total_servicios, anticipo, saldo, estado_factura_servicio, cliente_usuario_id),
+                )
+                factura_servicio_id = cursor.lastrowid
 
             # Registrar PAGO (aplicado a la factura de anticipo)
             cursor.execute(
@@ -411,11 +483,10 @@ class ReservaWebService(BaseCrudService):
                 (movimiento_usuario_id, f'Pago Wompi confirmado para reserva web #{reserva_id}'),
             )
 
-            # Si la factura de servicio quedó pagada (anticipo cubrió todo), procesar inventario
             if estado_factura_servicio == 'pagada':
                 InventarioService(self.mysql).procesar_factura_pagada(cursor, factura_servicio_id, movimiento_usuario_id)
-                cursor.execute("UPDATE citas SET cit_estado = 'completada' WHERE cit_id = %s", (cita_id,))
 
+            # Si la factura de servicio quedó pagada (anticipo cubrió todo), procesar inventario
             self.mysql.connection.commit()
             return {
                 'id_reserva': reserva_id,
