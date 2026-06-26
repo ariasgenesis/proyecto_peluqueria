@@ -188,9 +188,9 @@ class EmpleadoService(BaseCrudService):
             raise PermissionError('El PIN del empleado es requerido')
         cursor = self.mysql.connection.cursor()
         if empleado_id:
-            cursor.execute("SELECT emp_pin FROM empleados WHERE emp_id = %s AND emp_estado = 'activo'", (empleado_id,))
+            cursor.execute("SELECT emp_pin, emp_usuario_id FROM empleados WHERE emp_id = %s AND emp_estado = 'activo'", (empleado_id,))
         else:
-            cursor.execute("SELECT emp_pin FROM empleados WHERE emp_usuario_id = %s AND emp_estado = 'activo'", (usuario_id,))
+            cursor.execute("SELECT emp_pin, emp_usuario_id FROM empleados WHERE emp_usuario_id = %s AND emp_estado = 'activo'", (usuario_id,))
         row = cursor.fetchone()
         cursor.close()
         if not row:
@@ -210,7 +210,7 @@ class EmpleadoService(BaseCrudService):
                 cursor.close()
         if not pin_valido:
             raise PermissionError('PIN invalido')
-        return True
+        return row[1]
 
     def _validar_empleado_payload(self, data, partial=False):
         payload = self._validar_payload(data, partial=partial)

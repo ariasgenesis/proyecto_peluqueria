@@ -2,43 +2,89 @@
 import { ref, computed, onMounted } from 'vue'
 import {
   getDashboardKanban, getDashboardAlertas,
-  getClientes, getEmpleados,
+  getClientes, getEmpleados, getServicios,
   createCita, updateCita, editarDinamicaCita, deleteCita,
   crearPago, fmtCOP,
 } from '@/api/admin'
 
 // ─── estado principal ──────────────────────────────────────────────────────────
 const loading  = ref(true)
-const kanban   = ref({ confirmadas: [], liquidacion_pendiente: [], finalizadas: [] })
+const kanban   = ref({ pendientes: [], confirmadas: [], completadas: [] })
 const alertas  = ref({ productos_stock_bajo: [], citas_retrasadas: [] })
+const search = ref('')
+const filtroEstado = ref('')
 
 async function loadKanban() {
   try {
     const [k, a] = await Promise.all([getDashboardKanban(), getDashboardAlertas()])
-    kanban.value  = k
+    kanban.value  = {
+      pendientes:  k.pendientes || [],
+      confirmadas: k.confirmadas || [],
+      completadas: k.completadas || k.finalizadas || [],
+    }
     alertas.value = a
   } finally { loading.value = false }
 }
 onMounted(loadKanban)
 
+function aplicarFiltros(lista, bucket) {
+  if (filtroEstado.value && filtroEstado.value !== bucket) return []
+  const q = search.value.trim().toLowerCase()
+  return lista.filter(c => {
+    const coincideBusqueda =
+      !q ||
+      [
+        c.cliente,
+        c.cliente_documento,
+        c.cli_documento,
+        c.cliente_telefono,
+        c.empleado,
+        c.servicio,
+        c.estado,
+        c.factura_estado,
+      ]
+        .some(v => String(v || '').toLowerCase().includes(q))
+
+    return coincideBusqueda
+  })
+}
+
 // ─── nueva cita ───────────────────────────────────────────────────────────────
 const newOpen   = ref(false)
 const newSaving = ref(false)
 const newError  = ref('')
-const newDraft  = ref({ cliente_id: '', empleado_id: '', fecha: '', hora: '', estado: 'confirmada' })
+const newDraft  = ref({ cliente_id: '', empleado_id: '', fecha: '', hora: '', estado: 'pendiente', anticipo: 0 })
 const newClients = ref([])
 const newEmpls   = ref([])
+const newServices = ref([])
+const newServiceIds = ref(new Set())
+
+const newSelectedServices = computed(() =>
+  newServices.value.filter(s => newServiceIds.value.has(s.id_servicio))
+)
+const newTotal = computed(() =>
+  newSelectedServices.value.reduce((sum, s) => sum + Number(s.precio || 0), 0)
+)
+const newAnticipo = computed(() => Number(newDraft.value.anticipo || 0))
+const newSaldo = computed(() => Math.max(newTotal.value - newAnticipo.value, 0))
 
 async function openNewCita() {
-  newDraft.value = { cliente_id: '', empleado_id: '', fecha: new Date().toISOString().slice(0,10), hora: '', estado: 'confirmada' }
+  newDraft.value = { cliente_id: '', empleado_id: '', fecha: new Date().toISOString().slice(0,10), hora: '', estado: 'pendiente', anticipo: 0 }
+  newServiceIds.value = new Set()
   newError.value = ''
   newOpen.value  = true
-  if (!newClients.value.length) {
-    const [c, e] = await Promise.all([getClientes(), getEmpleados()])
-    newClients.value = c; newEmpls.value = e
+  if (!newClients.value.length || !newEmpls.value.length || !newServices.value.length) {
+    const [c, e, s] = await Promise.all([getClientes(), getEmpleados(), getServicios({ estado: 'activo' })])
+    newClients.value = c; newEmpls.value = e; newServices.value = s
   }
 }
 function closeNew() { newOpen.value = false }
+
+function toggleNewService(id) {
+  const next = new Set(newServiceIds.value)
+  next.has(id) ? next.delete(id) : next.add(id)
+  newServiceIds.value = next
+}
 
 async function saveNewCita() {
   newError.value = ''
@@ -46,9 +92,21 @@ async function saveNewCita() {
   if (!d.cliente_id || !d.empleado_id || !d.fecha || !d.hora) {
     newError.value = 'Todos los campos son requeridos'; return
   }
+  if (!newServiceIds.value.size) {
+    newError.value = 'Selecciona al menos un servicio'; return
+  }
+  if (newAnticipo.value < 0 || newAnticipo.value > newTotal.value) {
+    newError.value = 'El anticipo no puede ser negativo ni superar el total'; return
+  }
   newSaving.value = true
   try {
-    await createCita({ ...d, cliente_id: Number(d.cliente_id), empleado_id: Number(d.empleado_id) })
+    await createCita({
+      ...d,
+      cliente_id: Number(d.cliente_id),
+      empleado_id: Number(d.empleado_id),
+      anticipo: newAnticipo.value,
+      servicios: Array.from(newServiceIds.value),
+    })
     closeNew(); loading.value = true; await loadKanban()
   } catch (e) { newError.value = e.response?.data?.message || 'Error al crear la cita' }
   finally { newSaving.value = false }
@@ -115,7 +173,7 @@ async function guardarEstilista() {
     cambiarEmpleadoOpen.value = false
     loading.value = true; await loadKanban()
     // reabrir con datos nuevos
-    const col = [...kanban.value.confirmadas, ...kanban.value.liquidacion_pendiente, ...kanban.value.finalizadas]
+    const col = [...kanban.value.pendientes, ...kanban.value.confirmadas, ...kanban.value.completadas]
     const updated = col.find(c => c.id === selCard.value.id)
     if (updated) selCard.value = updated
   } catch (e) { drawerError.value = e.response?.data?.message || 'Error al cambiar estilista' }
@@ -157,19 +215,19 @@ const initials = (str) => (str || '').split(' ').slice(0,2).map(w => w[0] || '')
 
 const COLUMNS = computed(() => [
   {
+    id: 'pend', name: 'Pendientes', dot: '#d97706',
+    badgeBg: 'rgba(217,119,6,.12)', badgeColor: '#b06407', badge: 'Pendiente',
+    cards: aplicarFiltros(kanban.value.pendientes, 'pendientes').map(mapCard),
+  },
+  {
     id: 'conf', name: 'Confirmadas', dot: '#B0455F',
     badgeBg: 'rgba(176,69,95,.10)', badgeColor: '#B0455F', badge: 'Confirmada',
-    cards: kanban.value.confirmadas.map(mapCard),
+    cards: aplicarFiltros(kanban.value.confirmadas, 'confirmadas').map(mapCard),
   },
   {
-    id: 'liq', name: 'Liquidación pendiente', dot: '#d97706',
-    badgeBg: 'rgba(217,119,6,.12)', badgeColor: '#b06407', badge: 'Por liquidar',
-    cards: kanban.value.liquidacion_pendiente.map(mapCard),
-  },
-  {
-    id: 'fin', name: 'Finalizadas', dot: '#16a34a',
-    badgeBg: 'rgba(22,163,74,.12)', badgeColor: '#15803d', badge: 'Pagada',
-    cards: kanban.value.finalizadas.map(mapCard),
+    id: 'comp', name: 'Completadas', dot: '#16a34a',
+    badgeBg: 'rgba(22,163,74,.12)', badgeColor: '#15803d', badge: 'Completada',
+    cards: aplicarFiltros(kanban.value.completadas, 'completadas').map(mapCard),
   },
 ])
 
@@ -184,6 +242,8 @@ function mapCard(c) {
     stylist:     c.empleado,
     empleadoId:  c.empleado_id,
     clienteId:   c.cliente_id,
+    documento:   c.cliente_documento,
+    telefono:    c.cliente_telefono,
     facturaId:   c.factura_id,
     facEstado:   c.factura_estado,
     saldo:       c.saldo_pendiente,
@@ -223,6 +283,49 @@ const retrasadas  = computed(() => alertas.value.citas_retrasadas || [])
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#FBF6F4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
         <span>Nueva cita</span>
       </button>
+    </div>
+
+    <div class="kanban-tools">
+      <input
+      v-model="search"
+      class="kanban-search"
+      placeholder="Buscar cliente, documento, telefono o empleado..."
+      />
+
+      <div class="kanban-chips">
+        <button
+          class="kanban-chip"
+          :class="{ active: filtroEstado === '' }"
+          @click="filtroEstado = ''"
+          >
+           Todas
+        </button>
+
+        <button
+          class="kanban-chip"
+          :class="{ active: filtroEstado === 'pendientes' }"
+          @click="filtroEstado = 'pendientes'"
+          >
+            Pendientes
+        </button>
+
+        <button
+          class="kanban-chip"
+          :class="{ active: filtroEstado === 'confirmadas' }"
+          @click="filtroEstado = 'confirmadas'"
+          >
+            Confirmadas
+        </button>
+
+        <button
+          class="kanban-chip"
+          :class="{ active: filtroEstado === 'completadas' }"
+          @click="filtroEstado = 'completadas'"
+          >
+            Completadas
+        </button>
+
+      </div>
     </div>
 
     <!-- ALERTS STRIP -->
@@ -592,6 +695,44 @@ const retrasadas  = computed(() => alertas.value.citas_retrasadas || [])
               </div>
             </div>
             <div class="nc-group">
+              <label class="nc-label">Servicios *</label>
+              <div class="nc-services">
+                <button
+                  v-for="s in newServices"
+                  :key="s.id_servicio"
+                  type="button"
+                  class="nc-service"
+                  :class="{ 'nc-service--on': newServiceIds.has(s.id_servicio) }"
+                  @click="toggleNewService(s.id_servicio)"
+                >
+                  <span>
+                    <strong>{{ s.nombre }}</strong>
+                    <small>{{ s.duracion }} min</small>
+                  </span>
+                  <b>{{ fmtCOP(s.precio) }}</b>
+                </button>
+              </div>
+            </div>
+            <div class="invoice-box nc-summary">
+              <div class="invoice-row">
+                <span>Total servicios</span>
+                <span>{{ fmtCOP(newTotal) }}</span>
+              </div>
+              <div class="invoice-row">
+                <span>Anticipo</span>
+                <input class="nc-money" type="number" min="0" :max="newTotal" step="1000" v-model.number="newDraft.anticipo" />
+              </div>
+              <div class="invoice-row">
+                <span>Saldo pendiente</span>
+                <span>{{ fmtCOP(newSaldo) }}</span>
+              </div>
+              <div class="invoice-divider"></div>
+              <div class="invoice-total">
+                <span>Total factura</span>
+                <span class="invoice-total__amount">{{ fmtCOP(newTotal) }}</span>
+              </div>
+            </div>
+            <div class="nc-group">
               <label class="nc-label">Estado</label>
               <select class="nc-select" v-model="newDraft.estado">
                 <option value="pendiente">Pendiente</option>
@@ -623,6 +764,60 @@ const retrasadas  = computed(() => alertas.value.citas_retrasadas || [])
 .topbar__badge { font-size:12px; font-weight:600; padding:4px 11px; border-radius:20px; background:rgba(176,69,95,.10); color:#B0455F; }
 .topbar__new { display:flex; align-items:center; gap:7px; height:38px; padding:0 14px; border-radius:11px; border:none; background:#B0455F; color:#FBF6F4; font-size:13px; font-weight:500; font-family:inherit; cursor:pointer; transition:filter .2s; }
 .topbar__new:hover { filter:brightness(1.07); }
+
+.kanban-tools{
+  display:flex;
+  flex-wrap:wrap;
+  gap:12px;
+  align-items:center;
+  margin:0 20px 16px;
+}
+
+.kanban-search{
+  height:40px;
+  min-width:260px;
+  padding:0 14px;
+  border-radius:12px;
+  border:1px solid rgba(26,23,20,.08);
+  background:#fff;
+  color:#1A1714;
+  font-size:13px;
+  font-family:inherit;
+}
+
+.kanban-search:focus{
+  outline:none;
+  border-color:#B0455F;
+}
+
+.kanban-chips{
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
+}
+
+.kanban-chip{
+  height:34px;
+  padding:0 14px;
+  border-radius:20px;
+  border:1px solid rgba(26,23,20,.10);
+  background:#fff;
+  color:#6b6258;
+  font-size:12px;
+  font-weight:500;
+  cursor:pointer;
+  transition:.2s;
+}
+
+.kanban-chip:hover{
+  background:#F6F0ED;
+}
+
+.kanban-chip.active{
+  background:#1A1714;
+  color:#FBF6F4;
+  border-color:#1A1714;
+}
 
 /* alerts */
 .alerts { display:flex; align-items:center; gap:0; margin:0 20px 14px; padding:11px 14px; border-radius:13px; background:#fff; border:1px solid rgba(26,23,20,.08); overflow-x:auto; flex-wrap:nowrap; }
@@ -681,6 +876,11 @@ const retrasadas  = computed(() => alertas.value.citas_retrasadas || [])
 
 /* drawer (desktop) — oculto mobile */
 .drawer { display:none; }
+@media (min-width:1024px){
+  .kanban-tools{
+    margin:0 28px 18px;
+  }
+}
 
 /* bottom sheet */
 .sheet { position:fixed; left:0; right:0; bottom:0; z-index:40; background:#FBF6F4; border-radius:24px 24px 0 0; max-height:88vh; display:flex; flex-direction:column; padding-bottom:64px; }
@@ -751,6 +951,15 @@ const retrasadas  = computed(() => alertas.value.citas_retrasadas || [])
 .nc-cancel:hover { background:rgba(26,23,20,.04); }
 .nc-scroll { flex:1; overflow-y:auto; padding:0 22px 8px; }
 .nc-scroll::-webkit-scrollbar { display:none; }
+.nc-services { display:flex; flex-direction:column; gap:8px; max-height:230px; overflow-y:auto; padding-right:2px; }
+.nc-service { width:100%; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 13px; border-radius:12px; border:1.5px solid rgba(26,23,20,.10); background:#fff; color:#1A1714; text-align:left; font-family:inherit; cursor:pointer; transition:border-color .18s, background .18s, box-shadow .18s; }
+.nc-service strong { display:block; font-family:Fraunces,Georgia,serif; font-size:14px; font-weight:500; }
+.nc-service small { display:block; margin-top:2px; font-size:11px; color:#8a7f72; }
+.nc-service b { flex:none; font-size:12px; font-weight:700; color:#1A1714; }
+.nc-service--on { border-color:#B0455F; background:#fff7f9; box-shadow:0 0 0 2px rgba(176,69,95,.08); }
+.nc-summary { margin-top:2px; }
+.nc-money { width:130px; height:34px; padding:0 10px; border-radius:9px; border:1px solid rgba(26,23,20,.14); background:#fff; color:#1A1714; font-family:inherit; font-size:13px; text-align:right; }
+.nc-money:focus { outline:none; border-color:#B0455F; }
 
 /* transitions */
 .scrim-enter-active,.scrim-leave-active { transition:opacity .3s ease; }
@@ -769,7 +978,7 @@ const retrasadas  = computed(() => alertas.value.citas_retrasadas || [])
   .alerts { margin:0 28px 18px; }
   .col-tabs { display:none; }
   .board { padding:0 28px 28px; overflow:visible; }
-  .board__grid { display:grid; grid-template-columns:repeat(3,1fr); gap:20px; align-items:start; }
+  .board__grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:16px; align-items:start; }
   .board__mobile { display:none; }
   .sheet { display:none; }
   .nc-sheet { display:flex; }

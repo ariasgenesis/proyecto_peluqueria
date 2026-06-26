@@ -21,6 +21,7 @@ onMounted(async () => {
 })
 
 function estadoStock(p) {
+  if (p.estado === 'inactivo') return 'inactivo'
   if (p.stock === 0)            return 'agotado'
   if (p.stock < p.stock_minimo) return 'bajo'
   return 'ok'
@@ -38,6 +39,7 @@ const stats = computed(() => ({
   total:   allProductos.value.length,
   bajo:    allProductos.value.filter(p => estadoStock(p) === 'bajo').length,
   agotado: allProductos.value.filter(p => estadoStock(p) === 'agotado').length,
+  inactivo: allProductos.value.filter(p => p.estado === 'inactivo').length,
 }))
 
 const sheetOpen = computed(() => selected.value !== null || mode.value === 'create')
@@ -80,8 +82,10 @@ async function remove() {
   if (!confirm(`¿Desactivar "${selected.value.nombre}"?`)) return
   try {
     await deleteProducto(selected.value.id_producto)
-    allProductos.value = allProductos.value.filter(p => p.id_producto !== selected.value.id_producto)
-    close()
+    const updated = { ...selected.value, estado: 'inactivo' }
+    const idx = allProductos.value.findIndex(p => p.id_producto === selected.value.id_producto)
+    if (idx !== -1) allProductos.value[idx] = updated
+    selected.value = updated
   } catch (e) { alert(e.response?.data?.message || 'Error al eliminar') }
 }
 
@@ -129,6 +133,10 @@ async function guardarAjuste() {
         <div class="stat-card__val">{{ stats.agotado }}</div>
         <div class="stat-card__lbl">Agotados</div>
       </div>
+      <div class="stat-card stat-card--off">
+        <div class="stat-card__val">{{ stats.inactivo }}</div>
+        <div class="stat-card__lbl">Inactivos</div>
+      </div>
     </div>
 
     <!-- search + filtros -->
@@ -141,10 +149,10 @@ async function guardarAjuste() {
         </button>
       </div>
       <div class="chips">
-        <button v-for="f in ['todos','ok','bajo','agotado']" :key="f"
+        <button v-for="f in ['todos','ok','bajo','agotado','inactivo']" :key="f"
           class="chip" :class="{ 'chip--on': filtroEstado === f }"
           @click="filtroEstado = f">
-          {{ f === 'todos' ? 'Todos' : f === 'ok' ? 'En stock' : f === 'bajo' ? 'Stock bajo' : 'Agotados' }}
+          {{ f === 'todos' ? 'Todos' : f === 'ok' ? 'En stock' : f === 'bajo' ? 'Stock bajo' : f === 'agotado' ? 'Agotados' : 'Inactivos' }}
         </button>
       </div>
     </div>
@@ -167,7 +175,7 @@ async function guardarAjuste() {
         </thead>
         <tbody>
           <tr v-if="loading"><td colspan="6" style="padding:32px;text-align:center;color:#a59a8d">Cargando…</td></tr>
-          <tr v-for="p in productos" :key="p.id_producto" class="table__row" @click="open(p)">
+          <tr v-for="p in productos" :key="p.id_producto" class="table__row" :class="{ 'is-inactive': p.estado === 'inactivo' }" @click="open(p)">
             <td class="td-name">{{ p.nombre }}</td>
             <td class="td-muted">{{ p.tipo_control || '—' }}</td>
             <td class="tc" :class="{ 'td-danger': p.stock === 0, 'td-warn': p.stock < p.stock_minimo && p.stock > 0 }">
@@ -177,7 +185,7 @@ async function guardarAjuste() {
             <td class="td-muted">{{ fmtCOP(p.precio) }}</td>
             <td>
               <span class="badge" :class="'badge--' + estadoStock(p)">
-                {{ estadoStock(p) === 'ok' ? 'En stock' : estadoStock(p) === 'bajo' ? 'Stock bajo' : 'Agotado' }}
+                {{ estadoStock(p) === 'ok' ? 'En stock' : estadoStock(p) === 'bajo' ? 'Stock bajo' : estadoStock(p) === 'agotado' ? 'Agotado' : 'Inactivo' }}
               </span>
             </td>
           </tr>
@@ -186,14 +194,14 @@ async function guardarAjuste() {
 
       <!-- tarjetas mobile -->
       <div class="card-list">
-        <div v-for="p in productos" :key="p.id_producto" class="prod-card" @click="open(p)">
+        <div v-for="p in productos" :key="p.id_producto" class="prod-card" :class="{ 'is-inactive': p.estado === 'inactivo' }" @click="open(p)">
           <div class="prod-card__top">
             <div class="prod-card__info">
               <div class="prod-card__name">{{ p.nombre }}</div>
               <div class="prod-card__cat">{{ p.tipo_control || '—' }}</div>
             </div>
             <span class="badge" :class="'badge--' + estadoStock(p)">
-              {{ estadoStock(p) === 'ok' ? 'En stock' : estadoStock(p) === 'bajo' ? 'Bajo' : 'Agotado' }}
+              {{ estadoStock(p) === 'ok' ? 'En stock' : estadoStock(p) === 'bajo' ? 'Bajo' : estadoStock(p) === 'agotado' ? 'Agotado' : 'Inactivo' }}
             </span>
           </div>
           <div class="prod-card__meta">
@@ -295,7 +303,7 @@ async function guardarAjuste() {
               <div class="field-row">
                 <span class="field-lbl">Estado</span>
                 <span class="badge" :class="'badge--' + estadoStock(selected)">
-                  {{ estadoStock(selected) === 'ok' ? 'En stock' : estadoStock(selected) === 'bajo' ? 'Stock bajo' : 'Agotado' }}
+                  {{ estadoStock(selected) === 'ok' ? 'En stock' : estadoStock(selected) === 'bajo' ? 'Stock bajo' : estadoStock(selected) === 'agotado' ? 'Agotado' : 'Inactivo' }}
                 </span>
               </div>
             </div>
@@ -363,9 +371,11 @@ async function guardarAjuste() {
 }
 .stat-card--warn   { border-color: rgba(217,119,6,.18); background: #fffbf0; }
 .stat-card--danger { border-color: rgba(220,38,38,.15); background: #fff5f5; }
+.stat-card--off    { border-color: rgba(26,23,20,.12); background: #f4f1ee; }
 .stat-card__val { font-family: Fraunces, Georgia, serif; font-size: 26px; font-weight: 600; color: #1A1714; }
 .stat-card--warn   .stat-card__val { color: #b45309; }
 .stat-card--danger .stat-card__val { color: #dc2626; }
+.stat-card--off    .stat-card__val { color: #6b6258; }
 .stat-card__lbl { font-size: 12px; color: #a59a8d; margin-top: 2px; }
 
 /* toolbar */
@@ -413,6 +423,8 @@ async function guardarAjuste() {
 .badge--ok      { background: rgba(22,163,74,.12);  color: #15803d; }
 .badge--bajo    { background: rgba(217,119,6,.14);  color: #b45309; }
 .badge--agotado { background: rgba(220,38,38,.12);  color: #dc2626; }
+.badge--inactivo { background: rgba(26,23,20,.10); color: #6b6258; }
+.is-inactive { opacity: .62; }
 
 /* scrim */
 .scrim { position: fixed; inset: 0; z-index: 30; background: rgba(26,23,20,.28); }
@@ -506,7 +518,7 @@ async function guardarAjuste() {
 @media (min-width: 1024px) {
   .topbar   { padding: 24px 28px 18px; }
   .topbar__title { font-size: 26px; }
-  .stats    { padding: 0 28px 18px; grid-template-columns: repeat(3,160px); }
+  .stats    { padding: 0 28px 18px; grid-template-columns: repeat(4,160px); }
   .toolbar  { padding: 0 28px 14px; flex-direction: row; align-items: center; gap: 14px; }
   .search   { max-width: 340px; }
   .list-wrap { padding: 0 28px 32px; }

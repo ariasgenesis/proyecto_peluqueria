@@ -9,7 +9,7 @@ import BaseLoader from '@/components/BaseLoader.vue'
 const auth = useAuthStore()
 const router = useRouter()
 
-const form = ref({ nombre: '', telefono: '', username: '', password: '' })
+const form = ref({ nombre: '', apellido:'', documento: '', telefono: '', email: '', username:'', password: '' })
 const error = ref('')
 const loading = ref(false)
 
@@ -31,8 +31,11 @@ async function onSubmit() {
   <section class="auth">
     <h1>Crear cuenta</h1>
     <form @submit.prevent="onSubmit">
-      <label>Nombre<input v-model="form.nombre" type="text" required /></label>
+      <label>Nombre<input v-model="form.nombre" type="text" maxlength="50" required /></label>
+      <label>Apellido<input v-model="form.apellido" type="text" maxlength="50" required /></label>
+      <label>Documento<input v-model="form.documento" type="text" maxlength="20" pattern="[0-9]*" required /></label>
       <label>Teléfono<input v-model="form.telefono" type="tel" /></label>
+      <label>Email<input v-model="form.email" type="email" autocomplete="email" required /></label>
       <label>Usuario<input v-model="form.username" type="text" autocomplete="username" required /></label>
       <label>Contraseña<input v-model="form.password" type="password" autocomplete="new-password" required /></label>
 

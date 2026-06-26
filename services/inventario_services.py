@@ -8,6 +8,23 @@ class InventarioService:
     def __init__(self, mysql):
         self.mysql = mysql
 
+    def procesar_cita_completada(self, cursor, cita_id, user_id):
+        cursor.execute(
+            "SELECT fac_id, COALESCE(fac_inventario_procesado, 0) "
+            "FROM facturas WHERE fac_cita_id = %s AND fac_tipo = 'servicio' AND fac_estado <> 'cancelada' "
+            "ORDER BY fac_id DESC LIMIT 1 FOR UPDATE",
+            (cita_id,),
+        )
+        factura = cursor.fetchone()
+        if not factura:
+            raise ServiceError('No existe una factura de servicio para procesar inventario', 409)
+
+        factura_id, inventario_procesado = factura
+        if inventario_procesado:
+            return False
+
+        return self._descontar_productos_cita(cursor, cita_id, factura_id, user_id)
+
     def procesar_factura_pagada(self, cursor, factura_id, user_id):
         cursor.execute(
             "SELECT fac_cita_id, fac_estado, COALESCE(fac_inventario_procesado, 0), fac_tipo "
@@ -32,6 +49,9 @@ class InventarioService:
             # (Aunque en teoría tipo servicio debería tener cita_id)
             return False
 
+        return self._descontar_productos_cita(cursor, cita_id, factura_id, user_id)
+
+    def _descontar_productos_cita(self, cursor, cita_id, factura_id, user_id):
         requeridos = self._productos_requeridos(cursor, cita_id)
         totales_por_producto = defaultdict(int)
         for item in requeridos:
@@ -66,7 +86,7 @@ class InventarioService:
                     factura_id,
                     item['servicio_id'],
                     item['cantidad'],
-                    f'Descuento automatico por factura #{factura_id}'
+                    f'Descuento automatico por cita #{cita_id}'
                 ),
             )
             
@@ -74,7 +94,7 @@ class InventarioService:
                 "INSERT INTO movimientos (mov_usuario_id, mov_tipo, mov_descripcion) VALUES (%s, 'descontar_stock', %s)",
                 (
                     user_id,
-                    f'Descuento automatico de {item["cantidad"]} unidades del producto #{item["producto_id"]} por factura #{factura_id}',
+                    f'Descuento automatico de {item["cantidad"]} unidades del producto #{item["producto_id"]} por cita #{cita_id}',
                 ),
             )
 

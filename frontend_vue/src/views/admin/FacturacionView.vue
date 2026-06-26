@@ -26,7 +26,10 @@ const facturas = computed(() => {
   if (s) list = list.filter(f =>
     String(f.id_factura).includes(s) ||
     String(f.reserva_id || '').includes(s) ||
-    String(f.cita_id    || '').includes(s)
+    String(f.cita_id    || '').includes(s) ||
+    (f.cliente || '').toLowerCase().includes(s) ||
+    (f.empleado_confirmo || '').toLowerCase().includes(s) ||
+    (f.confirmada_por_nombre || '').toLowerCase().includes(s)
   )
   if (filtroTipo.value === 'wompi')       list = list.filter(f => !!f.reserva_id)
   else if (filtroTipo.value !== 'todos')  list = list.filter(f => f.tipo === filtroTipo.value)
@@ -57,6 +60,14 @@ function refLabel(f) {
 
 const estadoLabel = { pagada: 'Pagada', pendiente: 'Pendiente', parcial: 'Parcial', anulada: 'Anulada', cancelada: 'Cancelada' }
 const tipoLabel   = { servicio: 'Servicio', anticipo: 'Anticipo' }
+
+function clienteLabel(f) {
+  return f?.cliente || 'Cliente sin nombre'
+}
+
+function confirmadorLabel(f) {
+  return f?.empleado_confirmo || f?.confirmada_por_nombre || 'Pendiente'
+}
 
 const sheetOpen = computed(() => selected.value !== null || mode.value === 'create')
 
@@ -118,6 +129,20 @@ async function anular() {
     close()
   } catch (e) { alert(e.response?.data?.message || 'Error al anular') }
 }
+
+async function marcarPagada() {
+  if (!selected.value || selected.value.estado === 'pagada') return
+  const pin = prompt('PIN del empleado')
+  if (!pin?.match(/^\d{4}$/)) { alert('PIN de 4 dígitos requerido'); return }
+  saving.value = true
+  try {
+    const f = await updateFactura(selected.value.id_factura, { anticipo: Number(selected.value.total), pin })
+    const idx = allFacturas.value.findIndex(x => x.id_factura === f.id_factura)
+    if (idx !== -1) allFacturas.value[idx] = f
+    selected.value = f
+  } catch (e) { alert(e.response?.data?.message || 'Error al marcar como pagada') }
+  finally { saving.value = false }
+}
 </script>
 
 <template>
@@ -168,7 +193,7 @@ async function anular() {
         </button>
       </div>
       <div class="chips">
-        <button v-for="f in ['todos','pagada','pendiente','anulada']" :key="f"
+        <button v-for="f in ['todos','pagada','parcial','pendiente','anulada']" :key="f"
           class="chip" :class="{ 'chip--on': filtroEstado === f }"
           @click="filtroEstado = f">
           {{ f === 'todos' ? 'Todos' : estadoLabel[f] }}
@@ -186,19 +211,22 @@ async function anular() {
           <tr>
             <th>#</th>
             <th>Referencia</th>
+            <th>Cliente</th>
             <th>Fecha</th>
             <th>Anticipo</th>
             <th>Total</th>
             <th>Tipo</th>
             <th>Origen</th>
+            <th>Confirmo</th>
             <th>Estado</th>
           </tr>
         </thead>
         <tbody>
-          <tr v-if="loading"><td colspan="8" style="padding:32px;text-align:center;color:#a59a8d">Cargando…</td></tr>
+          <tr v-if="loading"><td colspan="10" style="padding:32px;text-align:center;color:#a59a8d">Cargando…</td></tr>
           <tr v-for="f in facturas" :key="f.id_factura" class="table__row" @click="open(f)">
             <td class="td-id">F-{{ f.id_factura }}</td>
             <td class="td-bold">{{ refLabel(f) }}</td>
+            <td class="td-muted">{{ clienteLabel(f) }}</td>
             <td class="td-muted">{{ f.fecha }}</td>
             <td class="td-muted">{{ fmtCOP(f.anticipo) }}</td>
             <td class="td-bold">{{ fmtCOP(f.total) }}</td>
@@ -209,6 +237,7 @@ async function anular() {
               <span v-if="f.reserva_id" class="badge badge--wompi">Wompi</span>
               <span v-else class="td-muted">Caja</span>
             </td>
+            <td class="td-muted">{{ confirmadorLabel(f) }}</td>
             <td>
               <span class="badge" :class="'badge--' + f.estado">{{ estadoLabel[f.estado] }}</span>
             </td>
@@ -222,7 +251,7 @@ async function anular() {
           <div class="fac-card__top">
             <div class="fac-card__info">
               <div class="fac-card__name">{{ refLabel(f) }}</div>
-              <div class="fac-card__meta">F-{{ f.id_factura }} · {{ f.fecha }}</div>
+              <div class="fac-card__meta">F-{{ f.id_factura }} · {{ clienteLabel(f) }} · {{ f.fecha }}</div>
             </div>
             <div class="fac-card__right">
               <div class="fac-card__total">{{ fmtCOP(f.total) }}</div>
@@ -319,6 +348,14 @@ async function anular() {
             </div>
             <div class="fields">
               <div class="field-row">
+                <span class="field-lbl">Cliente</span>
+                <span class="field-val">{{ clienteLabel(selected) }}</span>
+              </div>
+              <div class="field-row">
+                <span class="field-lbl">Confirmo pago</span>
+                <span class="field-val">{{ confirmadorLabel(selected) }}</span>
+              </div>
+              <div class="field-row">
                 <span class="field-lbl">Anticipo</span>
                 <span class="field-val">{{ fmtCOP(selected.anticipo) }}</span>
               </div>
@@ -351,6 +388,16 @@ async function anular() {
                       <span class="field-lbl">Fecha reserva</span>
                       <span class="field-val">{{ wompiData.fecha }}</span>
                     </div>
+                    <div class="fields">
+                      <div class="field-row">
+                        <span class="field-lbl">Cliente</span>
+                        <span class="field-val">{{ clienteLabel(selected) }}</span>
+                      </div>
+                      <div class="field-row">
+                        <span class="field-lbl">Despachado por</span>
+                        <span class="field-val">{{ confirmadorLabel(selected) }}</span>
+                      </div>
+                    </div>
                     <div class="field-row">
                       <span class="field-lbl">Hora</span>
                       <span class="field-val">{{ wompiData.hora }}</span>
@@ -371,6 +418,7 @@ async function anular() {
           <template v-if="mode === 'view'">
             <button v-if="['pendiente','parcial'].includes(selected.estado)" class="cta-btn" @click="openEdit">Registrar anticipo</button>
             <button v-else class="cta-btn" @click="close">Cerrar</button>
+            <button v-if="['pendiente','parcial'].includes(selected.estado)" class="sec-btn" :disabled="saving" @click="marcarPagada">Marcar pagada</button>
             <button v-if="selected.estado !== 'pagada'" class="del-btn" @click="anular">Anular factura</button>
           </template>
           <template v-else>

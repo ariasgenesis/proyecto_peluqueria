@@ -4,7 +4,7 @@ import os
 import pymysql
 pymysql.install_as_MySQLdb()
 
-from flask import Flask
+from flask import Flask, send_from_directory
 from flask_bcrypt import Bcrypt
 from flask_cors import CORS
 from flask_mysqldb import MySQL
@@ -42,6 +42,25 @@ except ImportError:
     print("❌ ERROR: No se pudo cargar Swagger porque 'flasgger' no está instalado.")
 
 cargarRutas(app)
+
+FRONTEND_DIST = os.path.join(os.path.dirname(__file__), 'frontend_vue', 'dist')
+API_PREFIXES = {
+    'usuarios', 'empleados', 'clientes', 'horarios', 'servicios', 'productos',
+    'servicios_productos', 'citas', 'detalle_citas', 'facturas', 'pagos',
+    'movimientos', 'dashboard', 'publico', 'reservas_web', 'webhook', 'cliente',
+}
+
+
+@app.route('/', defaults={'path': ''})
+@app.route('/<path:path>')
+def servir_frontend(path):
+    primer_segmento = path.split('/', 1)[0]
+    if primer_segmento in API_PREFIXES or not os.path.isdir(FRONTEND_DIST):
+        return {'success': False, 'message': 'Recurso no encontrado'}, 404
+    target = os.path.join(FRONTEND_DIST, path)
+    if path and os.path.isfile(target):
+        return send_from_directory(FRONTEND_DIST, path)
+    return send_from_directory(FRONTEND_DIST, 'index.html')
 
 
 @app.errorhandler(404)

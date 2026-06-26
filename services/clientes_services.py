@@ -9,10 +9,16 @@ from services.base_service import BaseCrudService, ServiceError
 
 class ClienteService(BaseCrudService):
     model = ClienteModel
-    schema = {'usuario_id': {'type': 'int', 'min': 1}, 'nombre': {'type': 'str', 'required': True, 'max': 50}, 'apellido': {'type': 'str', 'required': True, 'max': 50}, 'documento': {'type': 'str', 'required': True, 'max': 20}, 'telefono': {'type': 'str', 'max': 20, 'regex': re.compile(r'^\+?[0-9 ]{7,20}$'), 'regex_error': 'El telefono no tiene un formato valido'}, 'direccion': {'type': 'str', 'max': 150}, 'estado': {'type': 'str', 'default': 'activo', 'enum': ['activo', 'inactivo'], 'lower': True}}
+    schema = {'usuario_id': {'type': 'int', 'min': 1}, 'nombre': {'type': 'str', 'required': True, 'max': 50}, 'apellido': {'type': 'str', 'required': True, 'max': 50}, 'documento': {'type': 'str', 'required': True, 'max': 20, 'regex': re.compile(r'^[0-9]{5,20}$'),'regex_error': 'El documento debe contener solo numeros'}, 'telefono': {'type': 'str', 'max': 20, 'regex': re.compile(r'^\+?[0-9 ]{7,20}$'), 'regex_error': 'El telefono no tiene un formato valido'}, 'direccion': {'type': 'str', 'max': 150}, 'estado': {'type': 'str', 'default': 'activo', 'enum': ['activo', 'inactivo'], 'lower': True}}
 
     def crear(self, data, user_id=None):
         payload = self._validar_payload(data)
+        
+        payload['documento'] = payload['documento'].strip()
+        if not re.fullmatch(r'^[0-9]{5,20}$', payload['documento']):
+            raise ServiceError(
+                'El documento debe contener solo numeros'
+            )
         if payload.get('usuario_id'):
             return self.model.crear(self.mysql, **payload)
 
@@ -45,9 +51,30 @@ class ClienteService(BaseCrudService):
         except Exception as exc:
             self.mysql.connection.rollback()
             message = str(exc).lower()
+            if 'cli_documento' in message: 
+                raise ServiceError(
+                    'Ya existe un cliente con ese documento',
+                    409
+                )
+            if 'usu_email' in message:
+                raise ServiceError(
+                    'El correo ya se encuentra registrado',
+                    409
+                )
+            if 'usu_username' in message:
+                raise ServiceError(
+                    'El nombre de usuario ya existe',
+                    409
+                )
             if 'duplicate' in message or 'duplicada' in message:
-                raise ServiceError('Ya existe un cliente o usuario con esos datos', 409)
-            raise ServiceError('No se pudo registrar el cliente')
+                raise ServiceError(
+                    'Ya existe un cliente o usuario con esos datos',
+                    409
+                )
+            raise ServiceError(
+                'No se pudo registrar el cliente',
+                500
+            )
         finally:
             cursor.close()
         return self.model.obtener_por_id(self.mysql, cliente_id)
@@ -56,7 +83,7 @@ class ClienteService(BaseCrudService):
         if not isinstance(data, dict):
             raise ServiceError('El cuerpo de la solicitud debe ser un objeto JSON')
 
-        required = ['username', 'password', 'email', 'nombre', 'apellido']
+        required = ['username', 'password', 'email', 'nombre', 'apellido', 'documento']
         for field in required:
             value = data.get(field)
             if not isinstance(value, str) or not value.strip():
@@ -78,9 +105,12 @@ class ClienteService(BaseCrudService):
                 (username, password_hash, email),
             )
             usuario_id = cursor.lastrowid
-            documento = str(data.get('documento', '')).strip()
-            if not documento:
-                raise ServiceError('El campo "documento" es requerido')
+            documento = data['documento'].strip()
+            if not re.fullmatch(
+                r'^[0-9]{5,20}$',
+                documento
+            ):
+                raise ServiceError('El documento debe contener solo numeros')
             cursor.execute(
                 "INSERT INTO clientes (cli_usuario_id, cli_nombre, cli_apellido, cli_documento, cli_telefono, cli_direccion, cli_estado) "
                 "VALUES (%s, %s, %s, %s, %s, %s, 'activo')",
@@ -101,8 +131,30 @@ class ClienteService(BaseCrudService):
         except Exception as exc:
             self.mysql.connection.rollback()
             msg = str(exc).lower()
+            
+            if 'cli_documento' in msg:
+                raise ServiceError(
+                    'Ya existe un cliente con ese documento',
+                    409
+            )
+            
+            if 'usu_email' in msg:
+                raise ServiceError(
+                    'El correo ya se encuentra registrado',
+                    409
+                )
+            
+            if 'usu_username' in msg: 
+                raise ServiceError(
+                    'El nombre de usuario ya existe',
+                    409
+                
+                )
             if 'duplicate' in msg:
-                raise ServiceError('Ya existe un usuario o documento con esos datos', 409)
+                raise ServiceError(
+                    'Ya existe un usuario o documento con esos datos',
+                    409
+                )
             raise ServiceError('No se pudo registrar el cliente')
         finally:
             cursor.close()
@@ -111,6 +163,7 @@ class ClienteService(BaseCrudService):
             'id_usuario': usuario_id,
             'id_cliente': cliente_id,
             'username': username,
+            'documento': documento,
             'email': email,
             'rol': 'cliente',
             'estado': 'activo',

@@ -30,7 +30,7 @@ async function onSubmit() {
     if (redirect) {
       router.replace(redirect)
     } else {
-      router.replace(user.rol === 'cliente' ? { name: 'home' } : { name: 'admin-dashboard' })
+      router.replace(user.rol === 'cliente' ? { name: 'mi-cuenta' } : { name: 'admin-dashboard' })
     }
   } catch (err) {
     error.value = apiErrorMessage(err, 'Correo o contraseña incorrectos')

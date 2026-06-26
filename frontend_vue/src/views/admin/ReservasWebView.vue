@@ -1,6 +1,7 @@
 <script setup>
 import { onMounted, ref, watch } from 'vue'
-import { listarReservasWeb, cancelarReservaWeb } from '@/api/reservasWeb'
+import { listarReservasWeb, cancelarReservaWeb, actualizarReservaWeb } from '@/api/reservasWeb'
+import { updateFactura } from '@/api/admin'
 
 const items    = ref([])
 const loading  = ref(true)
@@ -11,6 +12,8 @@ const PER_PAGE = 20
 const filtroEstado = ref('')
 const selected     = ref(null)
 const canceling    = ref(false)
+const saving       = ref(false)
+const actionError  = ref('')
 
 const fmt     = (n) => '$' + Number(n).toLocaleString('es-CO')
 const fmtDate = (s) => {
@@ -37,6 +40,77 @@ async function cargar() {
     total.value = data.total || 0
   } finally {
     loading.value = false
+  }
+}
+
+async function asegurarFacturaSeleccionada() {
+  if (selected.value?.fac_servicio_id) return selected.value.fac_servicio_id
+  await actualizarReservaWeb(selected.value.id_reserva, { generar_factura: true })
+  await cargar()
+  selected.value = items.value.find(r => r.id_reserva === selected.value.id_reserva) || selected.value
+  if (!selected.value.fac_servicio_id) throw new Error('No se pudo generar la factura de la reserva')
+  return selected.value.fac_servicio_id
+}
+
+async function generarFactura() {
+  if (!selected.value || saving.value) return
+  saving.value = true
+  actionError.value = ''
+  try {
+    await asegurarFacturaSeleccionada()
+  } catch (e) {
+    actionError.value = e.response?.data?.message || e.message || 'Error al generar factura'
+  } finally {
+    saving.value = false
+  }
+}
+
+async function registrarAnticipo() {
+  if (!selected.value || saving.value) return
+  const monto = prompt('Nuevo anticipo')
+  if (monto === null) return
+  const valor = Number(monto)
+  if (!Number.isFinite(valor) || valor < 0 || valor > Number(selected.value.total || 0)) {
+    actionError.value = 'Ingresa un anticipo valido'
+    return
+  }
+  const pin = prompt('PIN del empleado')
+  if (!pin?.match(/^\d{4}$/)) {
+    actionError.value = 'PIN de 4 digitos requerido'
+    return
+  }
+  saving.value = true
+  actionError.value = ''
+  try {
+    const facturaId = await asegurarFacturaSeleccionada()
+    await updateFactura(facturaId, { anticipo: valor, pin })
+    await cargar()
+    selected.value = items.value.find(r => r.id_reserva === selected.value.id_reserva) || null
+  } catch (e) {
+    actionError.value = e.response?.data?.message || 'Error al registrar anticipo'
+  } finally {
+    saving.value = false
+  }
+}
+
+async function marcarPagada() {
+  if (!selected.value || saving.value) return
+  const pin = prompt('PIN del empleado')
+  if (!pin?.match(/^\d{4}$/)) {
+    actionError.value = 'PIN de 4 digitos requerido'
+    return
+  }
+  saving.value = true
+  actionError.value = ''
+  try {
+    const facturaId = await asegurarFacturaSeleccionada()
+    await updateFactura(facturaId, { anticipo: Number(selected.value.total || 0), pin })
+    await cargar()
+    selected.value = items.value.find(r => r.id_reserva === selected.value.id_reserva) || null
+  } catch (e) {
+    actionError.value = e.response?.data?.message || 'Error al marcar como pagada'
+  } finally {
+    saving.value = false
   }
 }
 
@@ -208,7 +282,7 @@ watch(page, cargar)
             v-for="r in items" :key="r.id_reserva"
             class="rv__row"
             :class="{ 'rv__row--on': selected?.id_reserva === r.id_reserva }"
-            @click="selected = selected?.id_reserva === r.id_reserva ? null : r"
+            @click="selected = selected?.id_reserva === r.id_reserva ? null : r; actionError = ''"
           >
             <td class="rv__id">{{ r.id_reserva }}</td>
             <td>
@@ -264,6 +338,7 @@ watch(page, cargar)
         </div>
         <div class="rv__dfield"><span>Referencia</span><strong class="rv__ref">{{ selected.referencia || '—' }}</strong></div>
         <div class="rv__dfield"><span>Creada</span><strong>{{ selected.created_at?.slice(0,16).replace('T',' ') }}</strong></div>
+        <p v-if="actionError" class="rv__error">{{ actionError }}</p>
 
         <!-- servicios detalle -->
         <div v-if="selected.servicios_items?.length" class="rv__svc-list">
@@ -281,6 +356,33 @@ watch(page, cargar)
         >
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
           Imprimir recibo
+        </button>
+
+        <button
+          v-if="selected.estado !== 'cancelada' && !selected.fac_servicio_id"
+          class="rv__print-btn"
+          :disabled="saving"
+          @click="generarFactura"
+        >
+          {{ saving ? 'Guardando...' : 'Generar factura' }}
+        </button>
+
+        <button
+          v-if="selected.estado !== 'cancelada' && selected.estado !== 'pagada'"
+          class="rv__print-btn"
+          :disabled="saving"
+          @click="registrarAnticipo"
+        >
+          Registrar anticipo
+        </button>
+
+        <button
+          v-if="selected.estado !== 'cancelada' && (selected.saldo_pendiente || 0) > 0"
+          class="rv__print-btn"
+          :disabled="saving"
+          @click="marcarPagada"
+        >
+          {{ saving ? 'Guardando...' : 'Marcar pagada' }}
         </button>
 
         <button
@@ -306,11 +408,11 @@ watch(page, cargar)
 .rv__filters { display: flex; gap: 10px; }
 .rv__select { height: 36px; padding: 0 12px; border: 1px solid rgba(26,23,20,.15); border-radius: 10px; background: #fff; font-size: 13px; color: var(--ink); cursor: pointer; }
 
-.rv__wrap { border-radius: 16px; border: 1px solid rgba(26,23,20,.1); overflow: hidden; background: #fff; }
+.rv__wrap { border-radius: 16px; border: 1px solid rgba(26,23,20,.1); overflow-x: auto; background: #fff; }
 .rv__loading { display: flex; justify-content: center; padding: 48px; }
 .rv__spin { width: 32px; height: 32px; border-radius: 50%; border: 3px solid rgba(176,69,95,.15); border-top-color: #B0455F; animation: spin .8s linear infinite; }
 
-.rv__table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.rv__table { width: 100%; min-width: 860px; border-collapse: collapse; font-size: 13px; }
 .rv__table th { padding: 10px 14px; text-align: left; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); border-bottom: 1px solid rgba(26,23,20,.08); background: #faf8f6; }
 .rv__table td { padding: 12px 14px; border-bottom: 1px solid rgba(26,23,20,.06); color: var(--ink); vertical-align: middle; }
 .rv__row { cursor: pointer; transition: background .15s; }
@@ -341,6 +443,7 @@ watch(page, cargar)
 .rv__svc-lbl { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-bottom: 8px; }
 .rv__svc-row { display: flex; justify-content: space-between; font-size: 13px; color: var(--ink); padding: 4px 0; border-bottom: 1px solid rgba(26,23,20,.05); }
 .rv__svc-row:last-child { border-bottom: 0; }
+.rv__error { margin: 0; color: #B0455F; font-size: 12px; }
 
 .rv__print-btn { display: flex; align-items: center; justify-content: center; gap: 7px; width: 100%; height: 42px; border: 1.5px solid #B0455F; border-radius: 12px; background: transparent; color: #B0455F; font-size: 14px; font-weight: 600; cursor: pointer; font-family: inherit; transition: background .15s; }
 .rv__print-btn:hover { background: rgba(176,69,95,.06); }
@@ -349,4 +452,11 @@ watch(page, cargar)
 
 .sheet-enter-active, .sheet-leave-active { transition: transform .25s ease; }
 .sheet-enter-from, .sheet-leave-to { transform: translateX(100%); }
+
+@media (max-width: 720px) {
+  .rv { padding: 22px 14px 48px; }
+  .rv__wrap { border-radius: 12px; }
+  .rv__table th, .rv__table td { padding: 10px 12px; }
+  .rv__sheet { left: 0; width: auto; border-left: 0; }
+}
 </style>

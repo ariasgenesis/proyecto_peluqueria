@@ -54,9 +54,9 @@ CREATE TABLE empleados (
 CREATE TABLE clientes (
     cli_id INT AUTO_INCREMENT PRIMARY KEY,
     cli_usuario_id INT UNIQUE NOT NULL,
-    cli_documento VARCHAR(20) UNIQUE NOT NULL,
     cli_nombre VARCHAR(50) NOT NULL,
     cli_apellido VARCHAR(50) NOT NULL,
+    cli_documento VARCHAR(20) UNIQUE NOT NULL,
     cli_telefono VARCHAR(20),
     cli_direccion VARCHAR(150),
     cli_estado ENUM('activo', 'inactivo') DEFAULT 'activo',

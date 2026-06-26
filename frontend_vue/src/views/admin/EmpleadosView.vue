@@ -24,6 +24,9 @@ const empleados = computed(() => {
   if (!s) return allEmpleados.value
   return allEmpleados.value.filter(e =>
     `${e.nombre} ${e.apellido}`.toLowerCase().includes(s) ||
+    (e.nombre || '').toLowerCase().includes(s) ||
+    (e.apellido || '').toLowerCase().includes(s) ||
+    (e.documento || '').toLowerCase().includes(s) ||
     (e.cargo || '').toLowerCase().includes(s)
   )
 })
@@ -96,7 +99,7 @@ async function remove() {
     <div class="search-wrap">
       <div class="search">
         <svg class="search__ico" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#a59a8d" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.35-4.35"/></svg>
-        <input v-model="q" class="search__input" type="search" placeholder="Buscar por nombre, especialidad…" />
+        <input v-model="q" class="search__input" type="search" placeholder="Buscar por nombre, apellido, documento o cargo..." />
         <button v-if="q" class="search__clear" @click="q = ''">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8a7f72" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
         </button>

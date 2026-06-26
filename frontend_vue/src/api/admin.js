@@ -6,6 +6,7 @@ const obj  = (res) => res.data.data        // {success, data:{...}}
 
 // Dashboard
 export const getDashboardAdmin   = () => apiClient.get('/dashboard/admin').then(obj)
+export const getDashboardEmpleado = () => apiClient.get('/dashboard/empleado').then(obj)
 export const getDashboardKanban  = () => apiClient.get('/dashboard/kanban').then(obj)
 export const getDashboardAlertas = () => apiClient.get('/dashboard/alertas').then(obj)
 
@@ -13,7 +14,7 @@ export const getDashboardAlertas = () => apiClient.get('/dashboard/alertas').the
 const ALL = { params: { page: 1, per_page: 100 } }
 export const getClientes    = (params) => apiClient.get('/clientes/',    { params: { page:1, per_page:100, ...params } }).then(list)
 export const getEmpleados   = (params) => apiClient.get('/empleados/',   { params: { page:1, per_page:100, ...params } }).then(list)
-export const getProductos   = (params) => apiClient.get('/productos/',   { params: { page:1, per_page:100, ...params } }).then(list)
+export const getProductos   = (params) => apiClient.get('/productos/',   { params: { page:1, per_page:100, include_deleted: true, ...params } }).then(list)
 export const getFacturas    = (params) => apiClient.get('/facturas/',    { params: { page:1, per_page:100, ...params } }).then(list)
 export const getMovimientos = (params) => apiClient.get('/movimientos/', { params: { page:1, per_page:100, ...params } }).then(list)
 

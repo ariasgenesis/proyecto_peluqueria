@@ -117,9 +117,9 @@ def seed_base(cur):
         (pin,),
     )
     cur.execute(
-        "INSERT INTO clientes (cli_usuario_id, cli_documento, cli_nombre, cli_apellido, "
+        "INSERT INTO clientes (cli_usuario_id, cli_nombre, cli_apellido, cli_documento, "
         "cli_telefono, cli_direccion) "
-        "VALUES (3, '50607080', 'Juan', 'Perez', '3009876543', 'Calle 123')"
+        "VALUES (3, 'Juan', 'Perez', '50607080', '3009876543', 'Calle 123')"
     )
     # Horario del empleado 1: lunes a sábado
     horario = [(1, dia, '09:00:00', '18:00:00') for dia in

@@ -62,9 +62,9 @@ REPLACE INTO `citas` (`cit_id`, `cit_cliente_id`, `cit_empleado_id`, `cit_fecha`
 CREATE TABLE IF NOT EXISTS `clientes` (
   `cli_id` int NOT NULL AUTO_INCREMENT,
   `cli_usuario_id` int NOT NULL,
-  `cli_documento` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL,
   `cli_nombre` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL,
   `cli_apellido` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `cli_documento` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL,
   `cli_telefono` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `cli_direccion` varchar(150) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `cli_estado` enum('activo','inactivo') COLLATE utf8mb4_unicode_ci DEFAULT 'activo',
@@ -77,10 +77,10 @@ CREATE TABLE IF NOT EXISTS `clientes` (
 ) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Volcando datos para la tabla gestiondb.clientes: ~0 rows (aproximadamente)
-REPLACE INTO `clientes` (`cli_id`, `cli_usuario_id`, `cli_documento`, `cli_nombre`, `cli_apellido`, `cli_telefono`, `cli_direccion`, `cli_estado`, `created_at`, `updated_at`) VALUES
-	(1, 3, '50607080', 'Juan', 'Perez', '3009876543', 'Calle 123', 'activo', '2026-06-19 23:28:57', '2026-06-19 23:28:57'),
-	(2, 7, '1047033333', 'Carolina', 'Cxr', '300123456', 'calle 366', 'activo', '2026-06-20 17:25:31', '2026-06-20 17:25:31'),
-	(3, 10, '123123123', 'shanon', 'shanon', '300123456', NULL, 'activo', '2026-06-22 22:01:44', '2026-06-22 22:01:44');
+REPLACE INTO `clientes` (`cli_id`, `cli_usuario_id`, `cli_nombre`, `cli_documento`, `cli_apellido`, `cli_telefono`, `cli_direccion`, `cli_estado`, `created_at`, `updated_at`) VALUES
+	(1, 3, 'Juan', '50607080', 'Perez', '3009876543', 'Calle 123', 'activo', '2026-06-19 23:28:57', '2026-06-19 23:28:57'),
+	(2, 7, 'Carolina', '1047033333', 'Cxr', '300123456', 'calle 366', 'activo', '2026-06-20 17:25:31', '2026-06-20 17:25:31'),
+	(3, 10, 'shanon', '123123123', 'shanon', '300123456', NULL, 'activo', '2026-06-22 22:01:44', '2026-06-22 22:01:44');
 
 -- Volcando estructura para tabla gestiondb.detalle_citas
 CREATE TABLE IF NOT EXISTS `detalle_citas` (

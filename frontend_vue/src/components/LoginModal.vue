@@ -37,7 +37,7 @@ async function onSubmit() {
   try {
     const user = await auth.login(email.value.trim(), password.value)
     close()
-    if (user.rol !== 'cliente') router.replace({ name: 'admin-dashboard' })
+    router.replace(user.rol === 'cliente' ? { name: 'mi-cuenta' } : { name: 'admin-dashboard' })
   } catch (err) {
     error.value = apiErrorMessage(err, 'Correo o contraseña incorrectos')
   } finally {

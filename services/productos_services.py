@@ -23,6 +23,9 @@ class ProductoService(BaseCrudService):
         'estado': {'type': 'str', 'default': 'activo', 'enum': ['activo', 'inactivo'], 'lower': True}
     }
 
+    def listar_todos(self, page, per_page, filters=None, search=None, include_deleted=False):
+        return self.model.listar_todos(self.mysql, page, per_page, filters, search, True)
+
     def actualizar(self, record_id, data, user_id=None):
         producto = super().actualizar(record_id, data, user_id)
         if user_id:
@@ -34,7 +37,7 @@ class ProductoService(BaseCrudService):
         if isinstance(pin, dict):
             empleado_id = pin.get('pin_empleado_id')
             pin = pin.get('pin')
-        EmpleadoService(self.mysql).validar_pin_usuario(user_id, pin, empleado_id)
+        movimiento_usuario_id = EmpleadoService(self.mysql).validar_pin_usuario(user_id, pin, empleado_id)
         cursor = self.mysql.connection.cursor()
         try:
             cursor.execute("SELECT pro_stock FROM productos WHERE pro_id = %s FOR UPDATE", (producto_id,))
@@ -47,14 +50,14 @@ class ProductoService(BaseCrudService):
             cursor.execute("UPDATE productos SET pro_stock = %s WHERE pro_id = %s", (nuevo_stock, producto_id))
             cursor.execute(
                 "INSERT INTO movimientos (mov_usuario_id, mov_tipo, mov_descripcion) VALUES (%s, %s, %s)",
-                (user_id, tipo_movimiento, descripcion),
+                (movimiento_usuario_id, tipo_movimiento, descripcion),
             )
             cursor.execute(
                 "INSERT INTO movimientos_inventario (moi_producto_id, moi_usuario_id, moi_tipo, moi_cantidad, moi_descripcion) "
                 "VALUES (%s, %s, %s, %s, %s)",
                 (
                     producto_id,
-                    user_id,
+                    movimiento_usuario_id,
                     'entrada' if cantidad > 0 else 'salida',
                     abs(cantidad),
                     descripcion,
@@ -86,7 +89,7 @@ class ProductoService(BaseCrudService):
         stock = data.get('stock')
         if isinstance(stock, bool) or not isinstance(stock, int) or stock < 0:
             raise ServiceError('El campo \"stock\" debe ser un entero mayor o igual a cero')
-        EmpleadoService(self.mysql).validar_pin_usuario(user_id, data.get('pin'), data.get('pin_empleado_id'))
+        movimiento_usuario_id = EmpleadoService(self.mysql).validar_pin_usuario(user_id, data.get('pin'), data.get('pin_empleado_id'))
         cursor = self.mysql.connection.cursor()
         try:
             cursor.execute("SELECT pro_stock FROM productos WHERE pro_id = %s FOR UPDATE", (producto_id,))
@@ -97,13 +100,13 @@ class ProductoService(BaseCrudService):
             cursor.execute("UPDATE productos SET pro_stock = %s WHERE pro_id = %s", (stock, producto_id))
             cursor.execute(
                 "INSERT INTO movimientos (mov_usuario_id, mov_tipo, mov_descripcion) VALUES (%s, 'editar_producto', %s)",
-                (user_id, f'Stock del producto #{producto_id} actualizado a {stock}'),
+                (movimiento_usuario_id, f'Stock del producto #{producto_id} actualizado a {stock}'),
             )
             if diferencia != 0:
                 cursor.execute(
                     "INSERT INTO movimientos_inventario (moi_producto_id, moi_usuario_id, moi_tipo, moi_cantidad, moi_descripcion) "
                     "VALUES (%s, %s, 'ajuste', %s, %s)",
-                    (producto_id, user_id, abs(diferencia), f'Ajuste de stock a {stock}'),
+                    (producto_id, movimiento_usuario_id, abs(diferencia), f'Ajuste de stock a {stock}'),
                 )
             self.mysql.connection.commit()
         except Exception:
