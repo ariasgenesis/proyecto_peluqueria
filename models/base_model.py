@@ -137,7 +137,9 @@ class BaseModel:
         mysql.connection.commit()
         affected = cursor.rowcount
         cursor.close()
-        return cls.obtener_por_id(mysql, record_id) if affected else None
+        # Si affected==0 puede ser porque los datos eran idénticos (MySQL no cuenta esa fila).
+        # En ese caso el registro sigue existiendo, así que lo retornamos igual.
+        return cls.obtener_por_id(mysql, record_id)
 
     @classmethod
     def eliminar(cls, mysql, record_id):
