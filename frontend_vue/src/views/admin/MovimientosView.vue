@@ -80,11 +80,17 @@ function cantSign(m)  { return m.tipo === 'salida' ? -m.cantidad : m.cantidad }
         <tbody>
           <tr v-if="loading"><td colspan="6" style="padding:32px;text-align:center;color:#a59a8d">Cargando…</td></tr>
           <tr v-for="m in movimientos" :key="m.id_movimiento_inv || m.id_movimiento" class="table__row">
-            <td class="td-muted td-nowrap">{{ fmtFecha(m.fecha) }}<br><span class="td-hora">{{ fmtHora(m.fecha) }}</span></td>
+            <td class="td-nowrap">
+              <span class="td-fecha">{{ fmtFecha(m.fecha) }}</span><br>
+              <span class="td-hora">{{ fmtHora(m.fecha) }}</span>
+            </td>
             <td>
               <span class="badge" :class="'badge--' + m.tipo">{{ tipoLabel[m.tipo] }}</span>
             </td>
-            <td class="td-muted">{{ m.producto || m.producto_nombre || ('#' + m.producto_id) }}</td>
+            <td>
+              <span class="td-prod-nombre">{{ m.producto || m.producto_nombre || 'Sin nombre' }}</span>
+              <span class="td-prod-id">ID: {{ m.producto_id || '—' }}</span>
+            </td>
             <td class="td-muted">{{ m.usuario || m.usuario_nombre || ('#' + m.usuario_id) }}</td>
             <td class="td-concepto">{{ m.descripcion }}</td>
             <td class="tc">
@@ -107,7 +113,10 @@ function cantSign(m)  { return m.tipo === 'salida' ? -m.cantidad : m.cantidad }
           </div>
           <div class="mov-card__concepto">{{ m.descripcion }}</div>
           <div class="mov-card__meta">
-            {{ m.producto || m.producto_nombre || ('#' + m.producto_id) }} · {{ m.usuario || m.usuario_nombre || ('#' + m.usuario_id) }} · {{ fmtFecha(m.fecha) }} · {{ fmtHora(m.fecha) }}
+            <span class="td-prod-nombre-inline">{{ m.producto || m.producto_nombre || 'Sin nombre' }}</span>
+            <span class="td-prod-id-inline"> (ID: {{ m.producto_id || '—' }})</span>
+            · {{ m.usuario || m.usuario_nombre || ('#' + m.usuario_id) }}
+            · {{ fmtFecha(m.fecha) }} {{ fmtHora(m.fecha) }}
           </div>
         </div>
       </div>
@@ -122,9 +131,11 @@ function cantSign(m)  { return m.tipo === 'salida' ? -m.cantidad : m.cantidad }
   font-family: Inter, system-ui, sans-serif; background: #FBF6F4; min-height: 100vh;
 }
 
+/* ── Topbar ── */
 .topbar { display: flex; align-items: center; justify-content: space-between; padding: 22px 20px 14px; }
 .topbar__title { margin: 0; font-family: Fraunces, Georgia, serif; font-size: 22px; font-weight: 500; color: #1A1714; letter-spacing: -.01em; }
 
+/* ── Toolbar ── */
 .toolbar { padding: 0 20px 12px; display: flex; flex-direction: column; gap: 10px; }
 .search {
   display: flex; align-items: center; gap: 10px; height: 46px; padding: 0 14px;
@@ -135,6 +146,7 @@ function cantSign(m)  { return m.tipo === 'salida' ? -m.cantidad : m.cantidad }
 .search__input::placeholder { color: #b7ab9d; }
 .search__input:focus { outline: none; }
 .search__clear { flex: none; display: flex; align-items: center; border: none; background: none; cursor: pointer; padding: 2px; }
+
 .chips { display: flex; gap: 7px; flex-wrap: wrap; }
 .chip {
   height: 32px; padding: 0 14px; border-radius: 20px; border: 1.5px solid rgba(26,23,20,.12);
@@ -142,42 +154,51 @@ function cantSign(m)  { return m.tipo === 'salida' ? -m.cantidad : m.cantidad }
 }
 .chip--on { background: #B0455F; border-color: #B0455F; color: #fff; }
 
+/* ── List wrap ── */
 .list-wrap { flex: 1; padding: 0 20px 28px; }
 .empty { text-align: center; color: #a59a8d; font-size: 14px; padding: 40px 0; }
+
+/* ── Table (hidden on mobile) ── */
 .table { display: none; }
 
+/* ── Mobile cards ── */
 .card-list { display: flex; flex-direction: column; gap: 10px; }
 .mov-card {
   background: #fff; border-radius: 14px; border: 1px solid rgba(26,23,20,.08); padding: 14px 16px;
 }
-.mov-card__top     { display: flex; align-items: center; justify-content: space-between; margin-bottom: 7px; }
-.mov-card__concepto{ font-size: 14px; font-weight: 600; color: #1A1714; margin-bottom: 5px; }
-.mov-card__meta    { font-size: 12px; color: #a59a8d; }
-.mov-card__notas   { font-size: 12px; color: #8a7f72; margin-top: 5px; }
+.mov-card__top      { display: flex; align-items: center; justify-content: space-between; margin-bottom: 7px; }
+.mov-card__concepto { font-size: 14px; font-weight: 600; color: #1A1714; margin-bottom: 5px; }
+.mov-card__meta     { font-size: 12px; color: #a59a8d; line-height: 1.6; }
 
+/* ── Badges ── */
 .badge { display: inline-block; font-size: 10px; font-weight: 600; padding: 2px 9px; border-radius: 20px; white-space: nowrap; }
 .badge--entrada { background: rgba(22,163,74,.12);  color: #15803d; }
 .badge--salida  { background: rgba(176,69,95,.10);  color: #B0455F; }
-.badge--ajuste  { background: rgba(217,119,6,.14);  color: #b45309; }
+.badge--ajuste  { background: rgba(234,179,8,.12);   color: #a16207; }
 
-.cant { font-size: 13px; font-weight: 700; }
-.cant--pos { color: #15803d; }
-.cant--neg { color: #B0455F; }
+/* ── Table cell helpers ── */
+.td-prod-nombre     { display: block; font-size: 13.5px; font-weight: 600; color: #1A1714; line-height: 1.3; }
+.td-prod-id         { display: block; font-size: 11px; color: #b7ab9d; margin-top: 1px; }
+.td-prod-nombre-inline { font-weight: 600; color: #1A1714; }
+.td-prod-id-inline  { font-size: 11px; color: #b7ab9d; }
+.td-muted           { color: #8a7f72; font-size: 13px; }
+.td-fecha           { font-size: 13px; color: #1A1714; }
+.td-hora            { font-size: 11px; color: #b7ab9d; }
+.td-nowrap          { white-space: nowrap; }
+.td-concepto        { font-size: 13px; color: #4a4540; max-width: 240px; }
+.cant               { font-size: 14px; font-weight: 700; }
+.cant--pos          { color: #15803d; }
+.cant--neg          { color: #B0455F; }
+.tc                 { text-align: center; }
 
-.td-muted    { color: #8a7f72 !important; font-size: 13px; }
-.td-hora     { font-size: 11px; color: #b7ab9d; }
-.td-nowrap   { white-space: nowrap; }
-.td-concepto { font-size: 13.5px; font-weight: 500; color: #1A1714; max-width: 260px; }
-.td-notas    { font-size: 12px; color: #8a7f72; max-width: 220px; }
-.tc          { text-align: center; }
-
-@media (min-width: 1024px) {
-  .topbar   { padding: 24px 28px 18px; }
+/* ── Desktop ── */
+@media (min-width: 700px) {
+  .topbar      { padding: 24px 28px 18px; }
   .topbar__title { font-size: 26px; }
-  .toolbar  { padding: 0 28px 14px; flex-direction: row; align-items: center; gap: 14px; }
-  .search   { max-width: 340px; }
-  .list-wrap { padding: 0 28px 32px; }
-  .card-list { display: none; }
+  .toolbar     { padding: 0 28px 14px; flex-direction: row; align-items: center; gap: 14px; }
+  .search      { max-width: 340px; }
+  .list-wrap   { padding: 0 28px 32px; }
+  .card-list   { display: none; }
 
   .table {
     display: table; width: 100%; border-collapse: separate; border-spacing: 0;
