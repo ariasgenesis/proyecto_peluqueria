@@ -120,9 +120,8 @@ onMounted(async () => {
   }
   try {
     await refreshServiciosPublicos()
-    if (serviciosAPI.value.length > 0) {
-      selectedIds.value = new Set([serviciosAPI.value[0].id_servicio])
-    }
+    const primerActivo = serviciosAPI.value.find(s => s.estado === 'activo')
+    if (primerActivo) selectedIds.value = new Set([primerActivo.id_servicio])
     servicePollTimer = window.setInterval(pollServiciosPublicos, 8000)
   } finally {
     loadingSvcs.value = false
@@ -137,13 +136,13 @@ onBeforeUnmount(() => {
 async function refreshServiciosPublicos({ notify = false } = {}) {
   const seleccionadosAntes = selectedServices.value
   const next = await listarServiciosPublicos()
-  const activos = new Set(next.map(s => s.id_servicio))
-  const removidos = seleccionadosAntes.filter(s => !activos.has(s.id_servicio))
+  const activosIds = new Set(next.filter(s => s.estado === 'activo').map(s => s.id_servicio))
+  const removidos = seleccionadosAntes.filter(s => !activosIds.has(s.id_servicio))
 
   serviciosAPI.value = next
 
   if (removidos.length) {
-    selectedIds.value = new Set(Array.from(selectedIds.value).filter(id => activos.has(id)))
+    selectedIds.value = new Set(Array.from(selectedIds.value).filter(id => activosIds.has(id)))
     slotHora.value = null
     slotsAPI.value = []
     if (step.value > 1) step.value = 1
@@ -429,12 +428,15 @@ function reset() {
             <div
               v-for="s in serviciosVisible" :key="s.id_servicio"
               class="svc"
-              :style="{ borderColor: selectedIds.has(s.id_servicio) ? '#B0455F' : 'rgba(26,23,20,.1)' }"
-              @click="toggle(s.id_servicio)"
+              :class="{ 'svc--unavailable': s.estado === 'inactivo' }"
+              :style="s.estado !== 'inactivo'
+                ? { borderColor: selectedIds.has(s.id_servicio) ? '#B0455F' : 'rgba(26,23,20,.1)' }
+                : { borderColor: 'rgba(26,23,20,.07)', cursor: 'not-allowed', opacity: '.55' }"
+              @click="s.estado !== 'inactivo' && toggle(s.id_servicio)"
             >
               <div class="svc__box" :style="{
-                background: selectedIds.has(s.id_servicio) ? '#B0455F' : '#fff',
-                borderColor: selectedIds.has(s.id_servicio) ? '#B0455F' : 'rgba(26,23,20,.2)',
+                background: s.estado === 'inactivo' ? '#f0ede9' : selectedIds.has(s.id_servicio) ? '#B0455F' : '#fff',
+                borderColor: s.estado === 'inactivo' ? 'rgba(26,23,20,.12)' : selectedIds.has(s.id_servicio) ? '#B0455F' : 'rgba(26,23,20,.2)',
               }">
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#FBF6F4" stroke-width="3" stroke-linecap="round" :style="{ opacity: selectedIds.has(s.id_servicio) ? 1 : 0 }"><path d="M20 6 9 17l-5-5"/></svg>
               </div>
@@ -442,7 +444,8 @@ function reset() {
                 <div class="svc__name">{{ s.nombre }}</div>
                 <div class="svc__dur">{{ s.duracion }} min</div>
               </div>
-              <div class="svc__price">{{ fmt(s.precio) }}</div>
+              <div v-if="s.estado === 'inactivo'" class="svc__badge-out">Sin stock</div>
+              <div v-else class="svc__price">{{ fmt(s.precio) }}</div>
             </div>
 
             <button v-if="hasMore && !svcExpanded" class="svc__more" @click="svcExpanded = true">
@@ -663,6 +666,7 @@ function reset() {
 .svc__name { font-family: var(--serif); font-size: 17px; color: var(--ink); }
 .svc__dur  { font-size: 12px; color: var(--muted); margin-top: 2px; }
 .svc__price { font-size: 15px; font-weight: 600; color: var(--rose); }
+.svc__badge-out { font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 20px; background: rgba(26,23,20,.08); color: #a59a8d; white-space: nowrap; }
 .svc__more { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; height: 46px; border:none; border-radius: 14px;background: #fbeef1; color: var(--rose); font-size: 14px; font-weight: 500; cursor: pointer; transition: background .18s, border-color .18s; }
 .svc__more:hover { background: #fbeef1; border-color: var(--rose); }
 

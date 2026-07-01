@@ -407,6 +407,8 @@ class CitaService(BaseCrudService):
         try:
             servicios, total, duracion = self._normalizar_servicios(servicios_input, cursor)
             anticipo = self._normalizar_anticipo(anticipo_input, total)
+            servicio_ids = [s['servicio_id'] for s in servicios]
+            InventarioService(self.mysql).validar_stock_para_servicios(cursor, servicio_ids)
             self._validar_disponibilidad(
                 payload['empleado_id'],
                 payload['fecha'],
