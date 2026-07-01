@@ -2,6 +2,7 @@
 import { onMounted, ref, watch } from 'vue'
 import { listarReservasWeb, cancelarReservaWeb, actualizarReservaWeb } from '@/api/reservasWeb'
 import { updateFactura } from '@/api/admin'
+import { useAlertDialog } from '@/composables/useAlertDialog'
 
 const items    = ref([])
 const loading  = ref(true)
@@ -14,6 +15,20 @@ const selected     = ref(null)
 const canceling    = ref(false)
 const saving       = ref(false)
 const actionError  = ref('')
+const { alertDialog, confirmDialog, promptDialog } = useAlertDialog()
+
+async function showStockServiceAlert(changes = []) {
+  if (!changes?.length) return
+  const inactivos = changes.filter(c => c.estado_nuevo === 'inactivo')
+  const nombres = changes.map(c => c.nombre).join(', ')
+  await alertDialog({
+    title: inactivos.length ? 'Servicio inactivado' : 'Servicio actualizado',
+    message: inactivos.length
+      ? `${nombres} quedo inactivo por stock bajo o agotado.`
+      : `${nombres} volvio a estar activo por recuperacion de stock.`,
+    variant: inactivos.length ? 'warning' : 'success',
+  })
+}
 
 const fmt     = (n) => '$' + Number(n).toLocaleString('es-CO')
 const fmtDate = (s) => {
@@ -67,14 +82,26 @@ async function generarFactura() {
 
 async function registrarAnticipo() {
   if (!selected.value || saving.value) return
-  const monto = prompt('Nuevo anticipo')
+  const monto = await promptDialog({
+    title: 'Registrar anticipo',
+    message: 'Ingresa el nuevo anticipo para la reserva.',
+    inputType: 'number',
+    placeholder: 'Valor',
+    confirmText: 'Continuar',
+  })
   if (monto === null) return
   const valor = Number(monto)
   if (!Number.isFinite(valor) || valor < 0 || valor > Number(selected.value.total || 0)) {
     actionError.value = 'Ingresa un anticipo valido'
     return
   }
-  const pin = prompt('PIN del empleado')
+  const pin = await promptDialog({
+    title: 'PIN del empleado',
+    message: 'Confirma el ajuste con el PIN del empleado.',
+    inputType: 'password',
+    placeholder: '4 digitos',
+  })
+  if (pin === null) return
   if (!pin?.match(/^\d{4}$/)) {
     actionError.value = 'PIN de 4 digitos requerido'
     return
@@ -83,9 +110,10 @@ async function registrarAnticipo() {
   actionError.value = ''
   try {
     const facturaId = await asegurarFacturaSeleccionada()
-    await updateFactura(facturaId, { anticipo: valor, pin })
+    const factura = await updateFactura(facturaId, { anticipo: valor, pin })
     await cargar()
     selected.value = items.value.find(r => r.id_reserva === selected.value.id_reserva) || null
+    await showStockServiceAlert(factura.servicios_actualizados)
   } catch (e) {
     actionError.value = e.response?.data?.message || 'Error al registrar anticipo'
   } finally {
@@ -95,7 +123,14 @@ async function registrarAnticipo() {
 
 async function marcarPagada() {
   if (!selected.value || saving.value) return
-  const pin = prompt('PIN del empleado')
+  const pin = await promptDialog({
+    title: 'PIN del empleado',
+    message: 'Confirma el pago con el PIN del empleado.',
+    inputType: 'password',
+    placeholder: '4 digitos',
+    confirmText: 'Marcar pagada',
+  })
+  if (pin === null) return
   if (!pin?.match(/^\d{4}$/)) {
     actionError.value = 'PIN de 4 digitos requerido'
     return
@@ -104,9 +139,10 @@ async function marcarPagada() {
   actionError.value = ''
   try {
     const facturaId = await asegurarFacturaSeleccionada()
-    await updateFactura(facturaId, { anticipo: Number(selected.value.total || 0), pin })
+    const factura = await updateFactura(facturaId, { anticipo: Number(selected.value.total || 0), pin })
     await cargar()
     selected.value = items.value.find(r => r.id_reserva === selected.value.id_reserva) || null
+    await showStockServiceAlert(factura.servicios_actualizados)
   } catch (e) {
     actionError.value = e.response?.data?.message || 'Error al marcar como pagada'
   } finally {
@@ -115,7 +151,13 @@ async function marcarPagada() {
 }
 
 async function cancelar(id) {
-  if (!confirm('¿Cancelar esta reserva?')) return
+  const ok = await confirmDialog({
+    title: 'Cancelar reserva',
+    message: 'Cancelar esta reserva?',
+    variant: 'danger',
+    confirmText: 'Cancelar reserva',
+  })
+  if (!ok) return
   canceling.value = true
   try {
     await cancelarReservaWeb(id)

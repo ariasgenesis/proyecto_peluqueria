@@ -6,6 +6,7 @@ from controllers.servicios_controllers import (
     cnteliminar_servicio,
     cntlistado_servicios,
     cntobtener_servicio,
+    cnttoggle_estado_servicio,
 )
 from middlewares.auth_middleware import admin_required, role_required
 
@@ -41,3 +42,9 @@ def actualizar_registro(id_servicio):
 @admin_required()
 def eliminar_registro(id_servicio):
     return cnteliminar_servicio(id_servicio)
+
+
+@servicio_bp.route('/<int:id_servicio>/toggle-estado', methods=['PATCH'])
+@admin_required()
+def toggle_estado(id_servicio):
+    return cnttoggle_estado_servicio(id_servicio)

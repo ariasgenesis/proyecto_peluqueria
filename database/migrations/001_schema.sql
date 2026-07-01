@@ -30,7 +30,7 @@ CREATE TABLE usuarios (
     usu_password VARCHAR(255) NOT NULL,
     usu_email VARCHAR(100) UNIQUE NOT NULL,
     usu_rol ENUM('admin', 'empleado', 'cliente') NOT NULL,
-    usu_estado ENUM('activo', 'inactivo') DEFAULT 'activo',
+    usu_estado ENUM('activo', 'inactivo', 'bloqueado') DEFAULT 'activo',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
@@ -45,7 +45,7 @@ CREATE TABLE empleados (
     emp_cargo VARCHAR(50),
     emp_especialidad VARCHAR(100),
     emp_pin VARCHAR(255) NOT NULL,
-    emp_estado ENUM('activo', 'inactivo') DEFAULT 'activo',
+    emp_estado ENUM('activo', 'inactivo', 'bloqueado') DEFAULT 'activo',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (emp_usuario_id) REFERENCES usuarios(usu_id) ON DELETE CASCADE
@@ -211,7 +211,7 @@ CREATE TABLE pagos (
 CREATE TABLE movimientos (
     mov_id INT AUTO_INCREMENT PRIMARY KEY,
     mov_usuario_id INT NOT NULL,
-    mov_tipo ENUM('crear_factura', 'editar_factura', 'eliminar_factura', 'crear_cita', 'cancelar_cita', 'agregar_stock', 'descontar_stock', 'editar_producto', 'crear_reserva_web', 'cancelar_reserva_web', 'confirmar_pago_wompi') NOT NULL,
+    mov_tipo ENUM('crear_factura', 'editar_factura', 'eliminar_factura', 'crear_cita', 'cancelar_cita', 'completar_cita', 'agregar_stock', 'descontar_stock', 'editar_producto', 'crear_reserva_web', 'cancelar_reserva_web', 'confirmar_pago_wompi') NOT NULL,
     mov_descripcion TEXT,
     mov_fecha DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (mov_usuario_id) REFERENCES usuarios(usu_id)

@@ -24,7 +24,7 @@ CORS(
     resources={r'/*': {'origins': '*'}},
     supports_credentials=False,
     allow_headers=['Content-Type', 'Authorization'],
-    methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    methods=['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
 )
 app.url_map.strict_slashes = False
 configurar_auth(app)

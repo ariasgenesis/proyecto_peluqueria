@@ -2,6 +2,7 @@ from collections import defaultdict
 from decimal import Decimal
 
 from services.base_service import ServiceError
+from services.servicios_services import ServicioService
 
 
 class InventarioService:
@@ -69,6 +70,10 @@ class InventarioService:
             if stock < requerido:
                 raise ServiceError(f'Stock insuficiente para el producto {nombre}', 409)
 
+        estados_anteriores = ServicioService(self.mysql).estados_servicios_por_stock(
+            cursor,
+            producto_ids=totales_por_producto.keys(),
+        )
         for item in requeridos:
             cursor.execute(
                 "UPDATE productos SET pro_stock = pro_stock - %s WHERE pro_id = %s",
@@ -102,7 +107,12 @@ class InventarioService:
             "UPDATE facturas SET fac_inventario_procesado = 1 WHERE fac_id = %s",
             (factura_id,),
         )
-        return True
+        cambios = ServicioService(self.mysql).sincronizar_estados_por_stock(
+            cursor,
+            producto_ids=totales_por_producto.keys(),
+            estados_anteriores=estados_anteriores,
+        )
+        return {'inventario_procesado': True, 'servicios_actualizados': cambios}
 
     def _productos_requeridos(self, cursor, cita_id):
         cursor.execute(

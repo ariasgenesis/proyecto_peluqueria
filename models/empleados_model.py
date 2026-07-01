@@ -10,7 +10,7 @@ class EmpleadoModel(BaseModel):
     search_fields = ['emp_nombre', 'emp_apellido', 'emp_documento', 'emp_telefono', 'emp_cargo']
     filter_fields = {'usuario_id': 'emp_usuario_id', 'cargo': 'emp_cargo', 'estado': 'emp_estado'}
     soft_delete_column = 'emp_estado'
-    soft_delete_value = 'inactivo'
+    soft_delete_value = 'bloqueado'
 
     def to_dict(self):
         data = super().to_dict()

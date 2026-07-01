@@ -1,7 +1,7 @@
 from flask import Blueprint, current_app, request
 
 from controllers.base_controller import error_response, success_response
-from controllers.servicios_controllers import cntlistado_servicios
+from controllers.servicios_controllers import cntlistado_servicios_publicos
 from services.base_service import ServiceError
 from services.citas_services import CitaService
 
@@ -16,7 +16,7 @@ SLOTS_DIA = [
 
 @publico_bp.route('/servicios', methods=['GET'])
 def servicios_publicos():
-    return cntlistado_servicios()
+    return cntlistado_servicios_publicos()
 
 
 @publico_bp.route('/empleados', methods=['GET'])

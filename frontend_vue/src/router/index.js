@@ -37,6 +37,7 @@ const routes = [
       { path: '', name: 'admin-dashboard', component: () => import('@/views/admin/DashboardView.vue') },
       { path: 'citas', name: 'admin-citas', component: () => import('@/views/admin/CitasView.vue') },
       { path: 'clientes', name: 'admin-clientes', component: () => import('@/views/admin/ClientesView.vue') },
+      { path: 'servicios', name: 'admin-servicios', component: () => import('@/views/admin/ServiciosView.vue') },
       { path: 'empleados',   name: 'admin-empleados',   component: () => import('@/views/admin/EmpleadosView.vue') },
       { path: 'inventario',  name: 'admin-inventario',  component: () => import('@/views/admin/InventarioView.vue') },
       { path: 'facturacion', name: 'admin-facturacion', component: () => import('@/views/admin/FacturacionView.vue') },

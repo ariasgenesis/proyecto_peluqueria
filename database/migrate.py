@@ -94,6 +94,7 @@ def migrar(cur):
     mig_dir = os.path.join(BASE_DIR, 'migrations')
     print(f"[..] ejecutando schema 001 ({ejecutar_sql_simple(cur, os.path.join(mig_dir, '001_schema.sql'))} sentencias)")
     print(f"[..] ejecutando triggers 002 ({ejecutar_sql_bloques(cur, os.path.join(mig_dir, '002_triggers.sql'))} sentencias)")
+    print(f"[..] ejecutando empleados bloqueados 003 ({ejecutar_sql_simple(cur, os.path.join(mig_dir, '003_empleados_bloqueados.sql'))} sentencias)")
     print("[ok] migraciones aplicadas")
 
 

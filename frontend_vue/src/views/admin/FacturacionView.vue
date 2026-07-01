@@ -1,8 +1,12 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { getFacturas, createFactura, updateFactura, deleteFactura, fmtCOP, getReservaWeb } from '@/api/admin'
+import { useAuthStore } from '@/stores/auth'
+import { useAlertDialog } from '@/composables/useAlertDialog'
 
 const loading      = ref(true)
+const auth         = useAuthStore()
+const isAdmin      = computed(() => auth.rol === 'admin')
 const allFacturas  = ref([])
 const q            = ref('')
 const filtroTipo   = ref('todos')
@@ -14,6 +18,20 @@ const saving       = ref(false)
 const formError    = ref('')
 const wompiData    = ref(null)
 const loadingWompi = ref(false)
+const { alertDialog, confirmDialog, promptDialog } = useAlertDialog()
+
+async function showStockServiceAlert(changes = []) {
+  if (!changes?.length) return
+  const inactivos = changes.filter(c => c.estado_nuevo === 'inactivo')
+  const nombres = changes.map(c => c.nombre).join(', ')
+  await alertDialog({
+    title: inactivos.length ? 'Servicio inactivado' : 'Servicio actualizado',
+    message: inactivos.length
+      ? `${nombres} quedo inactivo por stock bajo o agotado.`
+      : `${nombres} volvio a estar activo por recuperacion de stock.`,
+    variant: inactivos.length ? 'warning' : 'success',
+  })
+}
 
 onMounted(async () => {
   try { allFacturas.value = await getFacturas() }
@@ -98,7 +116,7 @@ function close() { selected.value = null; mode.value = 'view'; formError.value =
 async function save() {
   formError.value = ''
   const d = draft.value
-  if (!d.pin?.match(/^\d{4}$/)) { formError.value = 'PIN de 4 dígitos requerido'; return }
+  if (!isAdmin.value && !d.pin?.match(/^\d{4}$/)) { formError.value = 'PIN de 4 dígitos requerido'; return }
   if (mode.value === 'create') {
     if (!d.total) { formError.value = 'Total es requerido'; return }
     if (!d.tipo)  { formError.value = 'Tipo es requerido'; return }
@@ -106,41 +124,63 @@ async function save() {
   saving.value = true
   try {
     if (mode.value === 'create') {
-      const payload = { fecha: d.fecha, tipo: d.tipo, total: Number(d.total), anticipo: Number(d.anticipo) || 0, pin: d.pin }
+      const payload = { fecha: d.fecha, tipo: d.tipo, total: Number(d.total), anticipo: Number(d.anticipo) || 0, pin: isAdmin.value ? undefined : d.pin }
       if (d.cita_id) payload.cita_id = Number(d.cita_id)
       const f = await createFactura(payload)
       allFacturas.value.unshift(f); close()
+      await showStockServiceAlert(f.servicios_actualizados)
     } else {
-      const f = await updateFactura(selected.value.id_factura, { anticipo: Number(d.anticipo), pin: d.pin })
+      const f = await updateFactura(selected.value.id_factura, { anticipo: Number(d.anticipo), pin: isAdmin.value ? undefined : d.pin })
       const idx = allFacturas.value.findIndex(x => x.id_factura === f.id_factura)
       if (idx !== -1) allFacturas.value[idx] = f
       selected.value = f; mode.value = 'view'
+      await showStockServiceAlert(f.servicios_actualizados)
     }
   } catch (e) { formError.value = e.response?.data?.message || 'Error al guardar' }
   finally { saving.value = false }
 }
 
 async function anular() {
-  if (selected.value.estado === 'pagada') { alert('Las facturas pagadas no pueden anularse'); return }
-  if (!confirm(`¿Anular factura F-${selected.value.id_factura}?`)) return
+  if (selected.value.estado === 'pagada') {
+    await alertDialog({ title: 'Factura pagada', message: 'Las facturas pagadas no pueden anularse', variant: 'warning' })
+    return
+  }
+  const ok = await confirmDialog({
+    title: 'Anular factura',
+    message: `Anular factura F-${selected.value.id_factura}?`,
+    variant: 'danger',
+    confirmText: 'Anular',
+  })
+  if (!ok) return
   try {
     await deleteFactura(selected.value.id_factura)
     allFacturas.value = allFacturas.value.filter(f => f.id_factura !== selected.value.id_factura)
     close()
-  } catch (e) { alert(e.response?.data?.message || 'Error al anular') }
+  } catch (e) { await alertDialog({ title: 'No se pudo anular', message: e.response?.data?.message || 'Error al anular', variant: 'danger' }) }
 }
 
 async function marcarPagada() {
   if (!selected.value || selected.value.estado === 'pagada') return
-  const pin = prompt('PIN del empleado')
-  if (!pin?.match(/^\d{4}$/)) { alert('PIN de 4 dígitos requerido'); return }
+  const pin = isAdmin.value ? undefined : await promptDialog({
+    title: 'PIN del empleado',
+    message: 'Ingresa el PIN para marcar esta factura como pagada.',
+    inputType: 'password',
+    placeholder: '4 digitos',
+    confirmText: 'Marcar pagada',
+  })
+  if (pin === null) return
+  if (!isAdmin.value && !pin?.match(/^\d{4}$/)) {
+    await alertDialog({ title: 'PIN requerido', message: 'PIN de 4 digitos requerido', variant: 'warning' })
+    return
+  }
   saving.value = true
   try {
     const f = await updateFactura(selected.value.id_factura, { anticipo: Number(selected.value.total), pin })
     const idx = allFacturas.value.findIndex(x => x.id_factura === f.id_factura)
     if (idx !== -1) allFacturas.value[idx] = f
     selected.value = f
-  } catch (e) { alert(e.response?.data?.message || 'Error al marcar como pagada') }
+    await showStockServiceAlert(f.servicios_actualizados)
+  } catch (e) { await alertDialog({ title: 'No se pudo marcar como pagada', message: e.response?.data?.message || 'Error al marcar como pagada', variant: 'danger' }) }
   finally { saving.value = false }
 }
 </script>
@@ -321,7 +361,7 @@ async function marcarPagada() {
                   <input class="form-input" v-model="draft.anticipo" type="number" min="0" :max="selected.total" placeholder="0" />
                 </div>
               </template>
-              <div class="form-group">
+              <div v-if="!isAdmin" class="form-group">
                 <label class="form-label">PIN del empleado *</label>
                 <input class="form-input pin-input" v-model="draft.pin" type="text" maxlength="4" placeholder="••••" inputmode="numeric" autocomplete="off" />
               </div>

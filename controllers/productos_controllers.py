@@ -23,7 +23,12 @@ def cntactualizar_producto(id_producto):
 
 
 def cnteliminar_producto(id_producto):
-    return eliminar(ProductoService, id_producto, 'Producto')
+    service = ProductoService(current_app.mysql)
+    try:
+        data = service.eliminar(id_producto, usuario_actual_id())
+    except ServiceError as exc:
+        return error_response(exc.message, exc.status_code)
+    return success_response('Producto eliminado correctamente', data)
 
 
 def cntagregar_stock(id_producto):

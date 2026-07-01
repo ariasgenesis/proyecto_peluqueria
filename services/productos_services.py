@@ -4,6 +4,7 @@ from models.productos_model import ProductoModel
 from services.base_service import BaseCrudService, ServiceError
 from services.empleados_services import EmpleadoService
 from services.movimientos_services import MovimientoService
+from services.servicios_services import ServicioService
 
 
 class ProductoService(BaseCrudService):
@@ -27,10 +28,27 @@ class ProductoService(BaseCrudService):
         return self.model.listar_todos(self.mysql, page, per_page, filters, search, True)
 
     def actualizar(self, record_id, data, user_id=None):
+        estados_anteriores = ServicioService(self.mysql).estados_servicios_por_stock(producto_ids=[record_id])
         producto = super().actualizar(record_id, data, user_id)
+        producto['servicios_actualizados'] = ServicioService(self.mysql).sincronizar_estados_por_stock(
+            producto_ids=[record_id],
+            estados_anteriores=estados_anteriores,
+        )
         if user_id:
             MovimientoService(self.mysql).registrar(user_id, 'editar_producto', f'Producto #{record_id} actualizado')
         return producto
+
+    def eliminar(self, record_id, user_id=None):
+        estados_anteriores = ServicioService(self.mysql).estados_servicios_por_stock(producto_ids=[record_id])
+        if not self.model.eliminar(self.mysql, record_id):
+            raise ServiceError('Producto no encontrado', 404)
+        cambios = ServicioService(self.mysql).sincronizar_estados_por_stock(
+            producto_ids=[record_id],
+            estados_anteriores=estados_anteriores,
+        )
+        if user_id:
+            MovimientoService(self.mysql).registrar(user_id, 'eliminar_producto', f'Producto #{record_id} desactivado')
+        return {'id_producto': record_id, 'estado': 'inactivo', 'servicios_actualizados': cambios}
 
     def _ajustar_stock(self, producto_id, cantidad, user_id, pin, tipo_movimiento, descripcion):
         empleado_id = None
@@ -40,6 +58,7 @@ class ProductoService(BaseCrudService):
         movimiento_usuario_id = EmpleadoService(self.mysql).validar_pin_usuario(user_id, pin, empleado_id)
         cursor = self.mysql.connection.cursor()
         try:
+            estados_anteriores = ServicioService(self.mysql).estados_servicios_por_stock(cursor, producto_ids=[producto_id])
             cursor.execute("SELECT pro_stock FROM productos WHERE pro_id = %s FOR UPDATE", (producto_id,))
             producto = cursor.fetchone()
             if not producto:
@@ -63,13 +82,20 @@ class ProductoService(BaseCrudService):
                     descripcion,
                 ),
             )
+            cambios = ServicioService(self.mysql).sincronizar_estados_por_stock(
+                cursor,
+                producto_ids=[producto_id],
+                estados_anteriores=estados_anteriores,
+            )
             self.mysql.connection.commit()
         except Exception:
             self.mysql.connection.rollback()
             raise
         finally:
             cursor.close()
-        return self.model.obtener_por_id(self.mysql, producto_id)
+        producto_actualizado = self.model.obtener_por_id(self.mysql, producto_id)
+        producto_actualizado['servicios_actualizados'] = cambios
+        return producto_actualizado
 
     def agregar_stock(self, producto_id, data, user_id):
         cantidad = data.get('cantidad') if isinstance(data, dict) else None
@@ -92,6 +118,7 @@ class ProductoService(BaseCrudService):
         movimiento_usuario_id = EmpleadoService(self.mysql).validar_pin_usuario(user_id, data.get('pin'), data.get('pin_empleado_id'))
         cursor = self.mysql.connection.cursor()
         try:
+            estados_anteriores = ServicioService(self.mysql).estados_servicios_por_stock(cursor, producto_ids=[producto_id])
             cursor.execute("SELECT pro_stock FROM productos WHERE pro_id = %s FOR UPDATE", (producto_id,))
             actual = cursor.fetchone()
             if not actual:
@@ -108,13 +135,20 @@ class ProductoService(BaseCrudService):
                     "VALUES (%s, %s, 'ajuste', %s, %s)",
                     (producto_id, movimiento_usuario_id, abs(diferencia), f'Ajuste de stock a {stock}'),
                 )
+            cambios = ServicioService(self.mysql).sincronizar_estados_por_stock(
+                cursor,
+                producto_ids=[producto_id],
+                estados_anteriores=estados_anteriores,
+            )
             self.mysql.connection.commit()
         except Exception:
             self.mysql.connection.rollback()
             raise
         finally:
             cursor.close()
-        return self.model.obtener_por_id(self.mysql, producto_id)
+        producto_actualizado = self.model.obtener_por_id(self.mysql, producto_id)
+        producto_actualizado['servicios_actualizados'] = cambios
+        return producto_actualizado
 
     def stock_bajo(self, page, per_page):
         cursor = self.mysql.connection.cursor()

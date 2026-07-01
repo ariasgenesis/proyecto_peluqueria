@@ -7,6 +7,7 @@ from services.citas_services import CitaService
 from services.empleados_services import EmpleadoService
 from services.inventario_services import InventarioService
 from services.movimientos_services import MovimientoService
+from services.servicios_services import ServicioService
 
 
 class FacturaService(BaseCrudService):
@@ -192,6 +193,7 @@ class FacturaService(BaseCrudService):
         if not servicios:
             raise ServiceError('La reserva web no tiene servicios para generar la cita', 409)
         servicios_ids = [s[0] for s in servicios]
+        ServicioService(self.mysql).validar_servicios_reservables(servicios_ids, cursor)
 
         cursor.execute(
             "SELECT f2.fac_cita_id FROM facturas f2 "
@@ -295,9 +297,10 @@ class FacturaService(BaseCrudService):
             )
             
             # SOLO descontar inventario si es tipo SERVICIO y estado PAGADA
+            inventario = None
             if payload['tipo'] == 'servicio' and payload['estado'] == 'pagada':
                 self.asegurar_cita_para_factura_pagada(cursor, factura_id, user_id or payload['generada_por'])
-                InventarioService(self.mysql).procesar_factura_pagada(cursor, factura_id, user_id or payload['generada_por'])
+                inventario = InventarioService(self.mysql).procesar_factura_pagada(cursor, factura_id, user_id or payload['generada_por'])
             self._sincronizar_reserva_por_factura(cursor, factura_id)
 
             self.mysql.connection.commit()
@@ -307,7 +310,11 @@ class FacturaService(BaseCrudService):
         finally:
             cursor.close()
             
-        return self.obtener_por_id(factura_id)
+        factura = self.obtener_por_id(factura_id)
+        if isinstance(inventario, dict):
+            factura['inventario_procesado'] = inventario.get('inventario_procesado')
+            factura['servicios_actualizados'] = inventario.get('servicios_actualizados', [])
+        return factura
 
     def actualizar(self, record_id, data, user_id=None):
         if not isinstance(data, dict):
@@ -366,15 +373,20 @@ class FacturaService(BaseCrudService):
                 if cursor.rowcount == 0:
                     raise ServiceError('Factura no encontrada', 404)
                 
+            inventario = None
             if payload.get('estado') == 'pagada':
                 self.asegurar_cita_para_factura_pagada(cursor, record_id, user_id)
-                InventarioService(self.mysql).procesar_factura_pagada(cursor, record_id, user_id)
+                inventario = InventarioService(self.mysql).procesar_factura_pagada(cursor, record_id, user_id)
             self._sincronizar_reserva_por_factura(cursor, record_id)
 
             # Verificar si con el cambio pasó a PAGADA y es de tipo SERVICIO
             self.mysql.connection.commit()
             MovimientoService(self.mysql).registrar(user_id, 'editar_factura', f'Factura #{record_id} editada')
-            return self.obtener_por_id(record_id)
+            factura = self.obtener_por_id(record_id)
+            if isinstance(inventario, dict):
+                factura['inventario_procesado'] = inventario.get('inventario_procesado')
+                factura['servicios_actualizados'] = inventario.get('servicios_actualizados', [])
+            return factura
         except Exception:
             self.mysql.connection.rollback()
             raise

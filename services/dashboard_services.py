@@ -193,8 +193,13 @@ class DashboardService:
             ],
         }
 
-    def kanban_citas(self):
+    def kanban_citas(self, fecha=None):
         cursor = self.mysql.connection.cursor()
+        fecha_sql = "CURDATE()"
+        params = []
+        if fecha:
+            fecha_sql = "%s"
+            params.append(fecha)
         cursor.execute(
             "SELECT c.cit_id, c.cit_fecha, c.cit_hora, c.cit_estado, "
             "cli.cli_nombre, cli.cli_apellido, cli.cli_documento, cli.cli_telefono, c.cit_cliente_id, "
@@ -215,12 +220,13 @@ class DashboardService:
             "LEFT JOIN servicios s ON s.ser_id = dc.dci_servicio_id "
             "LEFT JOIN facturas f ON f.fac_cita_id = c.cit_id "
             "  AND f.fac_tipo = 'servicio' AND f.fac_estado <> 'cancelada' "
-            "WHERE c.cit_estado <> 'cancelada' "
+            f"WHERE c.cit_estado <> 'cancelada' AND c.cit_fecha = {fecha_sql} "
             "GROUP BY c.cit_id, c.cit_fecha, c.cit_hora, c.cit_estado, "
             "cli.cli_nombre, cli.cli_apellido, cli.cli_documento, cli.cli_telefono, c.cit_cliente_id, "
             "emp.emp_nombre, emp.emp_apellido, c.cit_empleado_id, "
             "f.fac_id, f.fac_estado, f.fac_saldo_pendiente, f.fac_anticipo, f.fac_total "
-            "ORDER BY c.cit_fecha ASC, c.cit_hora ASC"
+            "ORDER BY c.cit_fecha ASC, c.cit_hora ASC",
+            tuple(params),
         )
         rows = cursor.fetchall()
         cursor.close()
@@ -278,6 +284,17 @@ class DashboardService:
             "ORDER BY c.cit_fecha ASC, c.cit_hora ASC"
         )
         citas = cursor.fetchall()
+        cursor.execute(
+            "SELECT s.ser_id, s.ser_nombre, GROUP_CONCAT(p.pro_nombre ORDER BY p.pro_nombre SEPARATOR ', ') "
+            "FROM servicios s "
+            "INNER JOIN servicios_productos sp ON sp.sep_servicio_id = s.ser_id "
+            "INNER JOIN productos p ON p.pro_id = sp.sep_producto_id "
+            "WHERE s.ser_estado = 'inactivo' "
+            "AND (p.pro_estado <> 'activo' OR p.pro_stock <= p.pro_stock_minimo) "
+            "GROUP BY s.ser_id, s.ser_nombre "
+            "ORDER BY s.ser_nombre ASC"
+        )
+        servicios_stock = cursor.fetchall()
         cursor.close()
         return {
             'productos_stock_bajo': [
@@ -301,5 +318,13 @@ class DashboardService:
                     'retrasada': True,
                 }
                 for r in citas
+            ],
+            'servicios_inactivos_stock': [
+                {
+                    'id_servicio': r[0],
+                    'nombre': r[1],
+                    'productos': r[2],
+                }
+                for r in servicios_stock
             ],
         }
