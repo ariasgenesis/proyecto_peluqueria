@@ -251,9 +251,19 @@ class ReservaWebService(BaseCrudService):
             # Si viene empleado_id, validar disponibilidad
             self._validar_reserva_disponible(payload['empleado_id'], payload['fecha'], payload['hora'], servicios_ids=servicios_input)
 
+        # Validar stock antes de crear
+        from services.inventario_services import InventarioService
+        cursor_stock = self.mysql.connection.cursor()
+        try:
+            InventarioService(self.mysql).validar_stock_para_servicios(
+                cursor_stock, [s['id'] for s in servicios_info]
+            )
+        finally:
+            cursor_stock.close()
+
         payload['estado'] = 'pendiente'
         payload.pop('transaccion_id', None)
-        
+
         # Crear la reserva principal
         reserva_data = payload.copy()
         reserva = self.model.crear(self.mysql, **reserva_data)

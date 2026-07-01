@@ -17,7 +17,7 @@ def cntlistado_servicios_publicos():
         paginacion['page'],
         paginacion['per_page'],
         search=request.args.get('search'),
-        include_deleted=False,
+        include_deleted=True,
     )
     return success_response('Servicios activos obtenidos correctamente', data)
 

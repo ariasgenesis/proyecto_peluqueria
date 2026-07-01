@@ -114,6 +114,26 @@ class InventarioService:
         )
         return {'inventario_procesado': True, 'servicios_actualizados': cambios}
 
+    def validar_stock_para_servicios(self, cursor, servicio_ids):
+        """Lanza ServiceError si algún producto unitario no tiene stock suficiente."""
+        if not servicio_ids:
+            return
+        placeholders = ','.join(['%s'] * len(servicio_ids))
+        cursor.execute(
+            f"SELECT p.pro_id, p.pro_nombre, p.pro_stock, SUM(sp.sep_cantidad) AS requerido "
+            f"FROM servicios_productos sp "
+            f"INNER JOIN productos p ON p.pro_id = sp.sep_producto_id "
+            f"WHERE sp.sep_servicio_id IN ({placeholders}) "
+            f"AND p.pro_tipo_control = 'unitario' AND p.pro_estado = 'activo' "
+            f"GROUP BY p.pro_id, p.pro_nombre, p.pro_stock",
+            tuple(servicio_ids),
+        )
+        for _pid, nombre, stock, requerido in cursor.fetchall():
+            if int(stock) < int(requerido):
+                raise ServiceError(
+                    f'Stock insuficiente de "{nombre}" para agendar esta cita', 409
+                )
+
     def _productos_requeridos(self, cursor, cita_id):
         cursor.execute(
             "SELECT p.pro_id, sp.sep_servicio_id, sp.sep_cantidad "
