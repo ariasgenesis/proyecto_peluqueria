@@ -10,7 +10,7 @@ class UsuarioModel(BaseModel):
     search_fields = ['usu_username', 'usu_email']
     filter_fields = {'rol': 'usu_rol', 'estado': 'usu_estado'}
     soft_delete_column = 'usu_estado'
-    soft_delete_value = 'inactivo'
+    soft_delete_value = 'bloqueado'
 
     def to_dict(self):
         data = super().to_dict()

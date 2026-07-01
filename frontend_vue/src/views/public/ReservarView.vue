@@ -1,7 +1,8 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { useAlertDialog } from '@/composables/useAlertDialog'
 import {
   listarServiciosPublicos,
   listarEmpleadosPublicos,
@@ -11,6 +12,7 @@ import {
 
 const router  = useRouter()
 const auth    = useAuthStore()
+const { alertDialog } = useAlertDialog()
 
 // ── Wizard state ─────────────────────────────────────────────
 const step    = ref(1)
@@ -23,6 +25,8 @@ const slotsAPI       = ref([])   // [{hora, disponible}]
 const loadingSvcs    = ref(true)
 const loadingEmpls   = ref(false)
 const loadingSlots   = ref(false)
+let servicePollBusy  = false
+let servicePollTimer = null
 
 // ── Servicios pagination ──────────────────────────────────────
 const PAGE_SIZE      = 5
@@ -115,16 +119,52 @@ onMounted(async () => {
     return
   }
   try {
-    serviciosAPI.value = await listarServiciosPublicos()
+    await refreshServiciosPublicos()
     if (serviciosAPI.value.length > 0) {
       selectedIds.value = new Set([serviciosAPI.value[0].id_servicio])
     }
+    servicePollTimer = window.setInterval(pollServiciosPublicos, 8000)
   } finally {
     loadingSvcs.value = false
   }
 })
 
+onBeforeUnmount(() => {
+  if (servicePollTimer) window.clearInterval(servicePollTimer)
+})
+
 // ── Actions ───────────────────────────────────────────────────
+async function refreshServiciosPublicos({ notify = false } = {}) {
+  const seleccionadosAntes = selectedServices.value
+  const next = await listarServiciosPublicos()
+  const activos = new Set(next.map(s => s.id_servicio))
+  const removidos = seleccionadosAntes.filter(s => !activos.has(s.id_servicio))
+
+  serviciosAPI.value = next
+
+  if (removidos.length) {
+    selectedIds.value = new Set(Array.from(selectedIds.value).filter(id => activos.has(id)))
+    slotHora.value = null
+    slotsAPI.value = []
+    if (step.value > 1) step.value = 1
+    if (notify) {
+      await alertDialog({
+        title: 'Servicio no disponible',
+        message: `${removidos.map(s => s.nombre).join(', ')} quedo inactivo por stock bajo o agotado.`,
+        variant: 'warning',
+      })
+    }
+  }
+}
+
+async function pollServiciosPublicos() {
+  if (servicePollBusy) return
+  servicePollBusy = true
+  try { await refreshServiciosPublicos({ notify: true }) }
+  catch (_) {}
+  finally { servicePollBusy = false }
+}
+
 function toggle(id) {
   const s = new Set(selectedIds.value)
   s.has(id) ? s.delete(id) : s.add(id)
@@ -164,7 +204,10 @@ function goStep(n) {
   step.value = n
 }
 function back() { goStep(step.value - 1) }
-function next() {
+async function next() {
+  if (step.value === 1) {
+    await refreshServiciosPublicos({ notify: true })
+  }
   if (!canContinue.value) return
   if (step.value === 4) return handlePay()
   goStep(step.value + 1)
@@ -218,6 +261,12 @@ async function createReservation() {
   paying.value = true
   payError.value = ''
   try {
+    await refreshServiciosPublicos({ notify: true })
+    if (!selectedIds.value.size) {
+      payError.value = 'Selecciona un servicio activo para continuar.'
+      paying.value = false
+      return
+    }
     const payload = {
       servicios: Array.from(selectedIds.value),
       fecha: dates.value[dateIdx.value].str,

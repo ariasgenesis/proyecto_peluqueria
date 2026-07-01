@@ -5,13 +5,12 @@ const list = (res) => res.data.data.data   // {success, data:{data:[...], total,
 const obj  = (res) => res.data.data        // {success, data:{...}}
 
 // Dashboard
-export const getDashboardAdmin   = () => apiClient.get('/dashboard/admin').then(obj)
+export const getDashboardAdmin    = () => apiClient.get('/dashboard/admin').then(obj)
 export const getDashboardEmpleado = () => apiClient.get('/dashboard/empleado').then(obj)
-export const getDashboardKanban  = () => apiClient.get('/dashboard/kanban').then(obj)
-export const getDashboardAlertas = () => apiClient.get('/dashboard/alertas').then(obj)
+export const getDashboardKanban   = (params) => apiClient.get('/dashboard/kanban', { params }).then(obj)
+export const getDashboardAlertas  = () => apiClient.get('/dashboard/alertas').then(obj)
 
 // CRUD lists — per_page=100 (backend max)
-const ALL = { params: { page: 1, per_page: 100 } }
 export const getClientes    = (params) => apiClient.get('/clientes/',    { params: { page:1, per_page:100, ...params } }).then(list)
 export const getEmpleados   = (params) => apiClient.get('/empleados/',   { params: { page:1, per_page:100, ...params } }).then(list)
 export const getProductos   = (params) => apiClient.get('/productos/',   { params: { page:1, per_page:100, include_deleted: true, ...params } }).then(list)
@@ -43,14 +42,23 @@ export const updateEmpleado = (id, data) => apiClient.put(`/empleados/${id}`, da
 export const deleteEmpleado = (id) => apiClient.delete(`/empleados/${id}`).then(obj)
 
 // Citas CRUD
-export const getCitas            = (params) => apiClient.get('/citas/', { params: { page: 1, per_page: 100, ...params } }).then(list)
-export const createCita          = (data) => apiClient.post('/citas/', data).then(obj)
-export const updateCita          = (id, data) => apiClient.put(`/citas/${id}`, data).then(obj)
-export const editarDinamicaCita  = (id, data) => apiClient.put(`/citas/${id}/editar-dinamica`, data).then(obj)
-export const deleteCita          = (id) => apiClient.delete(`/citas/${id}`).then(obj)
+export const getCitas           = (params) => apiClient.get('/citas/', { params: { page: 1, per_page: 100, ...params } }).then(list)
+export const createCita         = (data) => apiClient.post('/citas/', data).then(obj)
+export const updateCita         = (id, data) => apiClient.put(`/citas/${id}`, data).then(obj)
+export const editarDinamicaCita = (id, data) => apiClient.put(`/citas/${id}/editar-dinamica`, data).then(obj)
+export const deleteCita         = (id) => apiClient.delete(`/citas/${id}`).then(obj)
 
-// Servicios
-export const getServicios = (params) => apiClient.get('/servicios/', { params: { page: 1, per_page: 100, ...params } }).then(list)
+// Servicios CRUD
+export const getServicios    = (params) => apiClient.get('/servicios/', { params: { page: 1, per_page: 100, include_deleted: true, ...params } }).then(list)
+export const createServicio  = (data) => apiClient.post('/servicios/', data).then(obj)
+export const updateServicio  = (id, data) => apiClient.put(`/servicios/${id}`, data).then(obj)
+export const toggleServicio  = (id) => apiClient.patch(`/servicios/${id}/toggle-estado`).then(obj)
+
+// Productos vinculados a servicios
+export const getServiciosProductos    = (params) => apiClient.get('/servicios_productos/', { params: { page: 1, per_page: 100, ...params } }).then(list)
+export const createServicioProducto   = (data) => apiClient.post('/servicios_productos/', data).then(obj)
+export const updateServicioProducto   = (id, data) => apiClient.put(`/servicios_productos/${id}`, data).then(obj)
+export const deleteServicioProducto   = (id) => apiClient.delete(`/servicios_productos/${id}`).then(obj)
 
 // Pagos
 export const crearPago = (data) => apiClient.post('/pagos/', data).then(obj)

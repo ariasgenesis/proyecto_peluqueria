@@ -1,5 +1,6 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
+import { useAlertDialog } from '@/composables/useAlertDialog'
 import {
   getDashboardKanban, getDashboardAlertas,
   getClientes, getEmpleados, getServicios,
@@ -11,12 +12,35 @@ import {
 const loading  = ref(true)
 const kanban   = ref({ pendientes: [], confirmadas: [], completadas: [] })
 const alertas  = ref({ productos_stock_bajo: [], citas_retrasadas: [] })
+const { alertDialog, confirmDialog } = useAlertDialog()
 const search = ref('')
 const filtroEstado = ref('')
+const filtroFecha = ref(localDate())
+
+async function showStockServiceAlert(changes = []) {
+  if (!changes?.length) return
+  const inactivos = changes.filter(c => c.estado_nuevo === 'inactivo')
+  const reactivados = changes.filter(c => c.estado_nuevo === 'activo')
+  const list = changes.map(c => c.nombre).join(', ')
+  await alertDialog({
+    title: inactivos.length ? 'Servicio inactivado' : 'Servicio actualizado',
+    message: inactivos.length
+      ? `${list} quedo inactivo por stock bajo o agotado.`
+      : `${reactivados.map(c => c.nombre).join(', ')} volvio a estar activo por recuperacion de stock.`,
+    variant: inactivos.length ? 'warning' : 'success',
+  })
+}
+
+function localDate(date = new Date()) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
 
 async function loadKanban() {
   try {
-    const [k, a] = await Promise.all([getDashboardKanban(), getDashboardAlertas()])
+    const [k, a] = await Promise.all([getDashboardKanban({ fecha: filtroFecha.value }), getDashboardAlertas()])
     kanban.value  = {
       pendientes:  k.pendientes || [],
       confirmadas: k.confirmadas || [],
@@ -26,6 +50,11 @@ async function loadKanban() {
   } finally { loading.value = false }
 }
 onMounted(loadKanban)
+
+watch(filtroFecha, async () => {
+  loading.value = true
+  await loadKanban()
+})
 
 function aplicarFiltros(lista, bucket) {
   if (filtroEstado.value && filtroEstado.value !== bucket) return []
@@ -58,6 +87,46 @@ const newClients = ref([])
 const newEmpls   = ref([])
 const newServices = ref([])
 const newServiceIds = ref(new Set())
+const newClientSearch = ref('')
+const newClientsLoading = ref(false)
+const newEmployeesLoading = ref(false)
+const newClientFilter = ref('todos')
+
+function normalizeSearch(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+}
+
+function clientSearchText(cliente) {
+  return normalizeSearch([
+    cliente.nombre,
+    cliente.apellido,
+    cliente.documento,
+    cliente.telefono,
+    cliente.direccion,
+    cliente.username,
+    cliente.email,
+  ].join(' '))
+}
+
+function clientFieldText(cliente, filter) {
+  if (filter === 'nombre') return normalizeSearch([cliente.nombre, cliente.apellido].join(' '))
+  if (filter === 'documento') return normalizeSearch(cliente.documento)
+  if (filter === 'telefono') return normalizeSearch(cliente.telefono)
+  return clientSearchText(cliente)
+}
+
+const filteredNewClients = computed(() => {
+  const term = normalizeSearch(newClientSearch.value.trim())
+  if (!term) return newClients.value
+  return newClients.value.filter(c => clientFieldText(c, newClientFilter.value).includes(term))
+})
+
+const newSelectedClient = computed(() =>
+  newClients.value.find(c => c.id_cliente === Number(newDraft.value.cliente_id))
+)
 
 const newSelectedServices = computed(() =>
   newServices.value.filter(s => newServiceIds.value.has(s.id_servicio))
@@ -69,13 +138,20 @@ const newAnticipo = computed(() => Number(newDraft.value.anticipo || 0))
 const newSaldo = computed(() => Math.max(newTotal.value - newAnticipo.value, 0))
 
 async function openNewCita() {
-  newDraft.value = { cliente_id: '', empleado_id: '', fecha: new Date().toISOString().slice(0,10), hora: '', estado: 'pendiente', anticipo: 0 }
+  newDraft.value = { cliente_id: '', empleado_id: '', fecha: filtroFecha.value || localDate(), hora: '', estado: 'pendiente', anticipo: 0 }
   newServiceIds.value = new Set()
+  newClientSearch.value = ''
+  newClientFilter.value = 'todos'
   newError.value = ''
   newOpen.value  = true
-  if (!newClients.value.length || !newEmpls.value.length || !newServices.value.length) {
+  newClientsLoading.value = true
+  newEmployeesLoading.value = true
+  try {
     const [c, e, s] = await Promise.all([getClientes(), getEmpleados(), getServicios({ estado: 'activo' })])
     newClients.value = c; newEmpls.value = e; newServices.value = s
+  } finally {
+    newClientsLoading.value = false
+    newEmployeesLoading.value = false
   }
 }
 function closeNew() { newOpen.value = false }
@@ -84,6 +160,10 @@ function toggleNewService(id) {
   const next = new Set(newServiceIds.value)
   next.has(id) ? next.delete(id) : next.add(id)
   newServiceIds.value = next
+}
+
+function selectNewClient(id) {
+  newDraft.value.cliente_id = id
 }
 
 async function saveNewCita() {
@@ -133,19 +213,34 @@ const drawerError = ref('')
 const completing = ref(false)
 
 async function completarCita() {
-  if (!selCard.value?.id || !confirm('¿Marcar cita como completada?')) return
+  if (!selCard.value?.id) return
+  const ok = await confirmDialog({
+    title: 'Completar cita',
+    message: 'Marcar cita como completada?',
+    variant: 'success',
+    confirmText: 'Completar',
+  })
+  if (!ok) return
   completing.value = true
   drawerError.value = ''
   try {
-    await updateCita(selCard.value.id, { estado: 'completada' })
+    const cita = await updateCita(selCard.value.id, { estado: 'completada' })
     closePanel(); loading.value = true; await loadKanban()
+    await showStockServiceAlert(cita.servicios_actualizados)
   } catch (e) { drawerError.value = e.response?.data?.message || 'Error al completar' }
   finally { completing.value = false }
 }
 
 // ─── cancelar cita ────────────────────────────────────────────────────────────
 async function cancelarCita() {
-  if (!selCard.value?.id || !confirm('¿Cancelar esta cita?')) return
+  if (!selCard.value?.id) return
+  const ok = await confirmDialog({
+    title: 'Cancelar cita',
+    message: 'Cancelar esta cita?',
+    variant: 'danger',
+    confirmText: 'Cancelar cita',
+  })
+  if (!ok) return
   try {
     await deleteCita(selCard.value.id)
     closePanel(); loading.value = true; await loadKanban()
@@ -256,12 +351,12 @@ function mapCard(c) {
 
 const totalCitas = computed(() => COLUMNS.value.reduce((s, c) => s + c.cards.length, 0))
 
-const hoy = (() => {
-  const d = new Date()
+const hoy = computed(() => {
+  const d = new Date(`${filtroFecha.value || localDate()}T12:00:00`)
   const dias  = ['dom','lun','mar','mié','jue','vie','sáb']
   const meses = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic']
   return `${dias[d.getDay()]} ${d.getDate()} ${meses[d.getMonth()]}`
-})()
+})
 
 const activeColIdx = ref(0)
 
@@ -276,7 +371,7 @@ const retrasadas  = computed(() => alertas.value.citas_retrasadas || [])
     <!-- TOPBAR -->
     <div class="topbar">
       <div class="topbar__left">
-        <div class="topbar__date">Hoy · {{ hoy }}</div>
+        <div class="topbar__date">Día · {{ hoy }}</div>
         <span class="topbar__badge">{{ totalCitas }} citas</span>
       </div>
       <button class="topbar__new" @click="openNewCita">
@@ -289,7 +384,12 @@ const retrasadas  = computed(() => alertas.value.citas_retrasadas || [])
       <input
       v-model="search"
       class="kanban-search"
-      placeholder="Buscar cliente, documento, telefono o empleado..."
+      placeholder="Buscar cliente, cedula, celular, servicio o empleado..."
+      />
+      <input
+        v-model="filtroFecha"
+        class="kanban-date"
+        type="date"
       />
 
       <div class="kanban-chips">
@@ -668,19 +768,53 @@ const retrasadas  = computed(() => alertas.value.citas_retrasadas || [])
           <div class="nc-form">
             <div class="nc-group">
               <label class="nc-label">Cliente *</label>
-              <select class="nc-select" v-model="newDraft.cliente_id">
-                <option value="">Seleccionar cliente…</option>
-                <option v-for="c in newClients" :key="c.id_cliente" :value="c.id_cliente">
-                  {{ c.nombre }} {{ c.apellido }}
-                </option>
-              </select>
+              <div class="client-filter">
+                <input
+                  v-model="newClientSearch"
+                  class="kanban-search client-filter__search"
+                  placeholder="Buscar cliente por nombre, cedula o celular..."
+                />
+                <div class="kanban-chips client-filter__chips">
+                  <button
+                    v-for="f in ['todos','nombre','documento','telefono']"
+                    :key="f"
+                    type="button"
+                    class="kanban-chip"
+                    :class="{ active: newClientFilter === f }"
+                    @click="newClientFilter = f"
+                  >
+                    {{ f === 'todos' ? 'Todos' : f === 'nombre' ? 'Nombre' : f === 'documento' ? 'Cedula' : 'Celular' }}
+                  </button>
+                </div>
+                <div class="client-results">
+                  <button
+                    v-for="c in filteredNewClients"
+                    :key="c.id_cliente"
+                    type="button"
+                    class="client-option"
+                    :class="{ 'client-option--on': Number(newDraft.cliente_id) === c.id_cliente }"
+                    @click="selectNewClient(c.id_cliente)"
+                  >
+                    <span class="client-option__avatar">{{ initials(`${c.nombre || ''} ${c.apellido || ''}`) }}</span>
+                    <span class="client-option__body">
+                      <strong>{{ c.nombre }} {{ c.apellido }}</strong>
+                      <small>{{ c.documento ? 'CC ' + c.documento : 'Sin documento' }} · {{ c.telefono || 'Sin celular' }}</small>
+                    </span>
+                  </button>
+                  <p v-if="newClientsLoading" class="client-empty">Buscando clientes...</p>
+                  <p v-else-if="!filteredNewClients.length" class="client-empty">Sin clientes encontrados</p>
+                </div>
+                <div v-if="newSelectedClient" class="client-selected">
+                  {{ newSelectedClient.nombre }} {{ newSelectedClient.apellido }}
+                </div>
+              </div>
             </div>
             <div class="nc-group">
               <label class="nc-label">Empleada *</label>
               <select class="nc-select" v-model="newDraft.empleado_id">
-                <option value="">Seleccionar empleada…</option>
+                <option value="">{{ newEmployeesLoading ? 'Buscando...' : 'Seleccionar empleada...' }}</option>
                 <option v-for="e in newEmpls" :key="e.id_empleado" :value="e.id_empleado">
-                  {{ e.nombre }} {{ e.apellido }}{{ e.cargo ? ' · ' + e.cargo : '' }}
+                  {{ e.nombre }} {{ e.apellido }}{{ e.documento ? ' - CC ' + e.documento : '' }}{{ e.telefono ? ' - ' + e.telefono : '' }}{{ e.cargo ? ' - ' + e.cargo : '' }}
                 </option>
               </select>
             </div>
@@ -773,7 +907,8 @@ const retrasadas  = computed(() => alertas.value.citas_retrasadas || [])
   margin:0 20px 16px;
 }
 
-.kanban-search{
+.kanban-search,
+.kanban-date{
   height:40px;
   min-width:260px;
   padding:0 14px;
@@ -785,7 +920,12 @@ const retrasadas  = computed(() => alertas.value.citas_retrasadas || [])
   font-family:inherit;
 }
 
-.kanban-search:focus{
+.kanban-date{
+  min-width:160px;
+}
+
+.kanban-search:focus,
+.kanban-date:focus{
   outline:none;
   border-color:#B0455F;
 }
@@ -960,6 +1100,45 @@ const retrasadas  = computed(() => alertas.value.citas_retrasadas || [])
 .nc-summary { margin-top:2px; }
 .nc-money { width:130px; height:34px; padding:0 10px; border-radius:9px; border:1px solid rgba(26,23,20,.14); background:#fff; color:#1A1714; font-family:inherit; font-size:13px; text-align:right; }
 .nc-money:focus { outline:none; border-color:#B0455F; }
+.client-filter { display:flex; flex-direction:column; gap:8px; }
+.client-filter__search { width:100%; min-width:0; box-sizing:border-box; }
+.client-filter__chips { gap:6px; }
+.client-filter__chips .kanban-chip { height:30px; padding:0 11px; font-size:11.5px; }
+.client-results { display:flex; flex-direction:column; gap:7px; max-height:210px; overflow-y:auto; padding-right:2px; }
+.client-results::-webkit-scrollbar { display:none; }
+.client-option {
+  width:100%;
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:10px 11px;
+  border-radius:12px;
+  border:1.5px solid rgba(26,23,20,.10);
+  background:#fff;
+  text-align:left;
+  font-family:inherit;
+  cursor:pointer;
+  transition:border-color .18s, background .18s, box-shadow .18s;
+}
+.client-option--on { border-color:#B0455F; background:#fff7f9; box-shadow:0 0 0 2px rgba(176,69,95,.08); }
+.client-option__avatar {
+  flex:none;
+  width:34px;
+  height:34px;
+  border-radius:50%;
+  background:#F1E5E3;
+  color:#7a3a4f;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-size:11px;
+  font-weight:700;
+}
+.client-option__body { min-width:0; display:flex; flex-direction:column; gap:2px; }
+.client-option__body strong { font-family:Fraunces,Georgia,serif; font-size:14px; font-weight:500; color:#1A1714; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.client-option__body small { font-size:11px; color:#8a7f72; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.client-empty { margin:8px 0; text-align:center; color:#a59a8d; font-size:12px; }
+.client-selected { border-radius:10px; background:rgba(22,163,74,.10); color:#15803d; padding:7px 10px; font-size:12px; font-weight:600; }
 
 /* transitions */
 .scrim-enter-active,.scrim-leave-active { transition:opacity .3s ease; }

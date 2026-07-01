@@ -9,6 +9,7 @@ from services.citas_services import CitaService
 from services.clientes_services import ClienteService
 from services.inventario_services import InventarioService
 from services.movimientos_services import MovimientoService
+from services.servicios_services import ServicioService
 
 
 class ReservaWebService(BaseCrudService):
@@ -134,13 +135,16 @@ class ReservaWebService(BaseCrudService):
             raise ServiceError('Debe seleccionar al menos un servicio')
         
         cursor = self.mysql.connection.cursor()
-        ids_str = ','.join(['%s'] * len(servicios_ids))
-        cursor.execute(
-            f"SELECT ser_id, ser_precio, ser_duracion FROM servicios WHERE ser_id IN ({ids_str}) AND ser_estado = 'activo'",
-            tuple(servicios_ids),
-        )
-        servicios = cursor.fetchall()
-        cursor.close()
+        try:
+            ServicioService(self.mysql).validar_servicios_reservables(servicios_ids, cursor)
+            ids_str = ','.join(['%s'] * len(servicios_ids))
+            cursor.execute(
+                f"SELECT ser_id, ser_precio, ser_duracion FROM servicios WHERE ser_id IN ({ids_str}) AND ser_estado = 'activo'",
+                tuple(servicios_ids),
+            )
+            servicios = cursor.fetchall()
+        finally:
+            cursor.close()
         
         if len(servicios) != len(set(servicios_ids)):
             raise ServiceError('Uno o más servicios no fueron encontrados o están inactivos', 404)
@@ -391,6 +395,7 @@ class ReservaWebService(BaseCrudService):
             servicios_detalle = cursor.fetchall()
             servicios_ids = [s[0] for s in servicios_detalle]
             total_servicios = sum(Decimal(str(s[1])) for s in servicios_detalle)
+            ServicioService(self.mysql).validar_servicios_reservables(servicios_ids, cursor)
 
             # Si no hay empleado asignado, ASIGNAR UNO AHORA
             if not empleado_id:

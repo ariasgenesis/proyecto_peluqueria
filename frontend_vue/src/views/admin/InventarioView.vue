@@ -1,8 +1,12 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { getProductos, agregarStock, descontarStock, createProducto, updateProducto, deleteProducto, fmtCOP } from '@/api/admin'
+import { useAuthStore } from '@/stores/auth'
+import { useAlertDialog } from '@/composables/useAlertDialog'
 
 const loading      = ref(true)
+const auth         = useAuthStore()
+const isAdmin      = computed(() => auth.rol === 'admin')
 const allProductos = ref([])
 const q            = ref('')
 const filtroEstado = ref('todos')
@@ -14,6 +18,8 @@ const formError    = ref('')
 const ajuste       = ref(0)
 const pinAjuste    = ref('')
 const ajusteError  = ref('')
+const serviceAlerts = ref([])
+const { alertDialog, confirmDialog } = useAlertDialog()
 
 onMounted(async () => {
   try { allProductos.value = await getProductos() }
@@ -23,8 +29,28 @@ onMounted(async () => {
 function estadoStock(p) {
   if (p.estado === 'inactivo') return 'inactivo'
   if (p.stock === 0)            return 'agotado'
-  if (p.stock < p.stock_minimo) return 'bajo'
+  if (p.stock <= p.stock_minimo) return 'bajo'
   return 'ok'
+}
+
+function setServiceAlerts(changes = []) {
+  serviceAlerts.value = (changes || []).map(c => ({
+    ...c,
+    text: `${c.nombre} paso a ${c.estado_nuevo === 'activo' ? 'activo' : 'inactivo'}`,
+  }))
+}
+
+async function showStockServiceAlert(changes = []) {
+  if (!changes?.length) return
+  const inactivos = changes.filter(c => c.estado_nuevo === 'inactivo')
+  const nombres = changes.map(c => c.nombre).join(', ')
+  await alertDialog({
+    title: inactivos.length ? 'Servicio inactivado' : 'Servicio actualizado',
+    message: inactivos.length
+      ? `${nombres} quedo inactivo por stock bajo o agotado.`
+      : `${nombres} volvio a estar activo por recuperacion de stock.`,
+    variant: inactivos.length ? 'warning' : 'success',
+  })
 }
 
 const productos = computed(() => {
@@ -70,6 +96,8 @@ async function save() {
       allProductos.value.unshift(p); close()
     } else {
       const p = await updateProducto(selected.value.id_producto, payload)
+      setServiceAlerts(p.servicios_actualizados)
+      await showStockServiceAlert(p.servicios_actualizados)
       const idx = allProductos.value.findIndex(x => x.id_producto === p.id_producto)
       if (idx !== -1) allProductos.value[idx] = p
       selected.value = p; mode.value = 'view'
@@ -79,25 +107,35 @@ async function save() {
 }
 
 async function remove() {
-  if (!confirm(`¿Desactivar "${selected.value.nombre}"?`)) return
+  const ok = await confirmDialog({
+    title: 'Desactivar producto',
+    message: `Desactivar "${selected.value.nombre}"?`,
+    variant: 'danger',
+    confirmText: 'Desactivar',
+  })
+  if (!ok) return
   try {
-    await deleteProducto(selected.value.id_producto)
+    const result = await deleteProducto(selected.value.id_producto)
+    setServiceAlerts(result.servicios_actualizados)
+    await showStockServiceAlert(result.servicios_actualizados)
     const updated = { ...selected.value, estado: 'inactivo' }
     const idx = allProductos.value.findIndex(p => p.id_producto === selected.value.id_producto)
     if (idx !== -1) allProductos.value[idx] = updated
     selected.value = updated
-  } catch (e) { alert(e.response?.data?.message || 'Error al eliminar') }
+  } catch (e) { await alertDialog({ title: 'No se pudo desactivar', message: e.response?.data?.message || 'Error al eliminar', variant: 'danger' }) }
 }
 
 async function guardarAjuste() {
   ajusteError.value = ''
   if (!ajuste.value) return
-  if (!pinAjuste.value.match(/^\d{4}$/)) { ajusteError.value = 'PIN de 4 dígitos requerido'; return }
+  if (!isAdmin.value && !pinAjuste.value.match(/^\d{4}$/)) { ajusteError.value = 'PIN de 4 dígitos requerido'; return }
   saving.value = true
   try {
     const id = selected.value.id_producto
     const fn = ajuste.value > 0 ? agregarStock : descontarStock
-    const updated = await fn(id, Math.abs(ajuste.value), pinAjuste.value)
+    const updated = await fn(id, Math.abs(ajuste.value), isAdmin.value ? undefined : pinAjuste.value)
+    setServiceAlerts(updated.servicios_actualizados)
+    await showStockServiceAlert(updated.servicios_actualizados)
     const nuevoStock = updated.stock ?? (selected.value.stock + ajuste.value)
     const idx = allProductos.value.findIndex(p => p.id_producto === id)
     if (idx !== -1) allProductos.value[idx] = { ...allProductos.value[idx], stock: nuevoStock }
@@ -139,6 +177,15 @@ async function guardarAjuste() {
       </div>
     </div>
 
+    <div v-if="serviceAlerts.length" class="service-alert">
+      <div class="service-alert__icon">!</div>
+      <div class="service-alert__body">
+        <strong>Servicios actualizados por inventario</strong>
+        <span>{{ serviceAlerts.map(a => a.text).join(' · ') }}</span>
+      </div>
+      <button class="service-alert__close" type="button" @click="serviceAlerts = []">×</button>
+    </div>
+
     <!-- search + filtros -->
     <div class="toolbar">
       <div class="search">
@@ -178,7 +225,7 @@ async function guardarAjuste() {
           <tr v-for="p in productos" :key="p.id_producto" class="table__row" :class="{ 'is-inactive': p.estado === 'inactivo' }" @click="open(p)">
             <td class="td-name">{{ p.nombre }}</td>
             <td class="td-muted">{{ p.tipo_control || '—' }}</td>
-            <td class="tc" :class="{ 'td-danger': p.stock === 0, 'td-warn': p.stock < p.stock_minimo && p.stock > 0 }">
+            <td class="tc" :class="{ 'td-danger': p.stock === 0, 'td-warn': p.stock <= p.stock_minimo && p.stock > 0 }">
               <strong>{{ p.stock }}</strong>
             </td>
             <td class="tc td-muted">{{ p.stock_minimo }}</td>
@@ -205,7 +252,7 @@ async function guardarAjuste() {
             </span>
           </div>
           <div class="prod-card__meta">
-            <span :class="{ 'text-danger': p.stock === 0, 'text-warn': p.stock < p.stock_minimo && p.stock > 0 }">
+            <span :class="{ 'text-danger': p.stock === 0, 'text-warn': p.stock <= p.stock_minimo && p.stock > 0 }">
               {{ p.stock }} uds
             </span>
             <span class="dot">·</span>
@@ -288,7 +335,7 @@ async function guardarAjuste() {
             <div class="fields">
               <div class="field-row">
                 <span class="field-lbl">Stock actual</span>
-                <span class="field-val" :class="{ 'text-danger': selected.stock === 0, 'text-warn': selected.stock < selected.stock_minimo && selected.stock > 0 }">
+                <span class="field-val" :class="{ 'text-danger': selected.stock === 0, 'text-warn': selected.stock <= selected.stock_minimo && selected.stock > 0 }">
                   {{ selected.stock }} uds
                 </span>
               </div>
@@ -315,7 +362,7 @@ async function guardarAjuste() {
               <button class="ajuste__btn" @click="ajuste++">+</button>
             </div>
             <p class="ajuste__note">Nuevo stock: <strong>{{ selected.stock + ajuste }}</strong> uds</p>
-            <div class="form-group" style="margin-top:10px">
+            <div v-if="!isAdmin" class="form-group" style="margin-top:10px">
               <label class="form-label">PIN del empleado</label>
               <input class="form-input pin-input" v-model="pinAjuste" type="text" maxlength="4" placeholder="••••" inputmode="numeric" autocomplete="off" />
             </div>
@@ -377,6 +424,51 @@ async function guardarAjuste() {
 .stat-card--danger .stat-card__val { color: #dc2626; }
 .stat-card--off    .stat-card__val { color: #6b6258; }
 .stat-card__lbl { font-size: 12px; color: #a59a8d; margin-top: 2px; }
+
+.service-alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 0 20px 14px;
+  padding: 12px 14px;
+  border-radius: 13px;
+  background: #fff7f2;
+  border: 1px solid rgba(217,119,6,.18);
+}
+.service-alert__icon {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: rgba(217,119,6,.14);
+  color: #b45309;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+}
+.service-alert__body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+}
+.service-alert__body strong { color: #1A1714; font-size: 13px; }
+.service-alert__body span { color: #8a5b12; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.service-alert__close {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  background: transparent;
+  color: #8a7f72;
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+}
 
 /* toolbar */
 .toolbar { padding: 0 20px 12px; display: flex; flex-direction: column; gap: 10px; }
@@ -519,6 +611,7 @@ async function guardarAjuste() {
   .topbar   { padding: 24px 28px 18px; }
   .topbar__title { font-size: 26px; }
   .stats    { padding: 0 28px 18px; grid-template-columns: repeat(4,160px); }
+  .service-alert { margin: 0 28px 14px; }
   .toolbar  { padding: 0 28px 14px; flex-direction: row; align-items: center; gap: 14px; }
   .search   { max-width: 340px; }
   .list-wrap { padding: 0 28px 32px; }

@@ -2,20 +2,86 @@ from models.movimientos_model import MovimientoModel
 from models.movimientos_inventario_model import MovimientoInventarioModel
 from services.base_service import BaseCrudService
 
+TIPOS_MOVIMIENTO = [
+    'crear_factura',
+    'editar_factura',
+    'eliminar_factura',
+    'crear_cita',
+    'cancelar_cita',
+    'completar_cita',
+    'crear_reserva_web',
+    'cancelar_reserva_web',
+    'confirmar_pago_wompi',
+    'agregar_stock',
+    'descontar_stock',
+    'editar_producto',
+]
+
+_ENUM_SINCRONIZADO = False
+
 
 class MovimientoService(BaseCrudService):
     model = MovimientoModel
-    schema = {'usuario_id': {'type': 'int', 'required': True, 'min': 1}, 'tipo': {'type': 'str', 'required': True, 'enum': ['crear_factura', 'editar_factura', 'eliminar_factura', 'crear_cita', 'cancelar_cita', 'completar_cita', 'crear_reserva_web', 'confirmar_pago_wompi', 'agregar_stock', 'descontar_stock', 'editar_producto'], 'lower': True}, 'descripcion': {'type': 'str'}}
+    schema = {'usuario_id': {'type': 'int', 'required': True, 'min': 1}, 'tipo': {'type': 'str', 'required': True, 'enum': TIPOS_MOVIMIENTO, 'lower': True}, 'descripcion': {'type': 'str'}}
+
+    def _usuario_id_valido(self, usuario_id):
+        try:
+            usuario_id = int(usuario_id)
+        except (TypeError, ValueError):
+            return None
+        if usuario_id <= 0:
+            return None
+        cursor = self.mysql.connection.cursor()
+        try:
+            cursor.execute("SELECT usu_id FROM usuarios WHERE usu_id = %s", (usuario_id,))
+            return usuario_id if cursor.fetchone() else None
+        finally:
+            cursor.close()
+
+    def _sincronizar_enum_tipo(self):
+        global _ENUM_SINCRONIZADO
+        if _ENUM_SINCRONIZADO:
+            return
+        cursor = self.mysql.connection.cursor()
+        try:
+            cursor.execute("SHOW COLUMNS FROM movimientos LIKE 'mov_tipo'")
+            row = cursor.fetchone()
+            tipo_columna = row[1] if row else ''
+            faltantes = [tipo for tipo in TIPOS_MOVIMIENTO if f"'{tipo}'" not in tipo_columna]
+            if faltantes:
+                enum_sql = ','.join(f"'{tipo}'" for tipo in TIPOS_MOVIMIENTO)
+                cursor.execute(f"ALTER TABLE movimientos MODIFY mov_tipo ENUM({enum_sql}) NOT NULL")
+                self.mysql.connection.commit()
+            _ENUM_SINCRONIZADO = True
+        except Exception:
+            self.mysql.connection.rollback()
+            raise
+        finally:
+            cursor.close()
 
     def registrar(self, usuario_id, tipo, descripcion):
+        usuario_id = self._usuario_id_valido(usuario_id)
         if not usuario_id:
             return None
-        return self.model.crear(
-            self.mysql,
-            usuario_id=usuario_id,
-            tipo=tipo,
-            descripcion=descripcion
-        )
+        tipo = str(tipo or '').lower()
+        if tipo not in TIPOS_MOVIMIENTO:
+            return None
+        try:
+            return self.model.crear(
+                self.mysql,
+                usuario_id=usuario_id,
+                tipo=tipo,
+                descripcion=descripcion
+            )
+        except Exception:
+            self.mysql.connection.rollback()
+            self._sincronizar_enum_tipo()
+            return self.model.crear(
+                self.mysql,
+                usuario_id=usuario_id,
+                tipo=tipo,
+                descripcion=descripcion
+            )
 
 
 class MovimientoInventarioService(BaseCrudService):

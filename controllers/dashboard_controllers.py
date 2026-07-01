@@ -1,4 +1,4 @@
-from flask import current_app
+from flask import current_app, request
 
 from controllers.base_controller import success_response, usuario_actual_id
 from services.dashboard_services import DashboardService
@@ -15,7 +15,7 @@ def cntdashboard_empleado():
 
 
 def cntdashboard_kanban():
-    data = DashboardService(current_app.mysql).kanban_citas()
+    data = DashboardService(current_app.mysql).kanban_citas(request.args.get('fecha'))
     return success_response('Dashboard kanban obtenido correctamente', data)
 
 

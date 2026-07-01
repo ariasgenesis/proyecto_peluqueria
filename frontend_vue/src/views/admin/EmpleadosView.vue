@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { getEmpleados, createEmpleado, updateEmpleado, deleteEmpleado } from '@/api/admin'
+import { useAlertDialog } from '@/composables/useAlertDialog'
 
 const loading      = ref(true)
 const allEmpleados = ref([])
@@ -10,19 +11,22 @@ const mode         = ref('view') // 'view' | 'create' | 'edit'
 const draft        = ref({})
 const saving       = ref(false)
 const formError    = ref('')
+const { alertDialog, confirmDialog } = useAlertDialog()
 
 onMounted(async () => {
-  try { allEmpleados.value = await getEmpleados() }
+  try { allEmpleados.value = await getEmpleados({ include_deleted: true }) }
   finally { loading.value = false }
 })
 
 const initials = (e) => ((e.nombre?.[0] || '') + (e.apellido?.[0] || '')).toUpperCase() || '?'
 const rolLabel = { admin: 'Administrador', empleado: 'Estilista' }
+const estadoLabel = { activo: 'Activa', inactivo: 'Inactiva', bloqueado: 'Bloqueada' }
 
 const empleados = computed(() => {
   const s = q.value.trim().toLowerCase()
-  if (!s) return allEmpleados.value
-  return allEmpleados.value.filter(e =>
+  const visibles = allEmpleados.value.filter(e => e.estado !== 'bloqueado')
+  if (!s) return visibles
+  return visibles.filter(e =>
     `${e.nombre} ${e.apellido}`.toLowerCase().includes(s) ||
     (e.nombre || '').toLowerCase().includes(s) ||
     (e.apellido || '').toLowerCase().includes(s) ||
@@ -74,12 +78,37 @@ async function save() {
 }
 
 async function remove() {
-  if (!confirm(`¿Desactivar a ${selected.value.nombre} ${selected.value.apellido}?`)) return
+  const ok = await confirmDialog({
+    title: 'Borrar empleada',
+    message: `Borrar del panel a ${selected.value.nombre} ${selected.value.apellido}? Quedara bloqueada en la base de datos.`,
+    variant: 'danger',
+    confirmText: 'Borrar',
+  })
+  if (!ok) return
   try {
     await deleteEmpleado(selected.value.id_empleado)
     allEmpleados.value = allEmpleados.value.filter(e => e.id_empleado !== selected.value.id_empleado)
     close()
-  } catch (e) { alert(e.response?.data?.message || 'Error al eliminar') }
+  } catch (e) { await alertDialog({ title: 'No se pudo eliminar', message: e.response?.data?.message || 'Error al eliminar', variant: 'danger' }) }
+}
+
+async function toggleEstado() {
+  if (!selected.value) return
+  const nuevoEstado = selected.value.estado === 'activo' ? 'inactivo' : 'activo'
+  const accion = nuevoEstado === 'activo' ? 'reactivar' : 'desactivar'
+  const ok = await confirmDialog({
+    title: `${accion.charAt(0).toUpperCase() + accion.slice(1)} empleada`,
+    message: `${accion.charAt(0).toUpperCase() + accion.slice(1)} a ${selected.value.nombre} ${selected.value.apellido}?`,
+    variant: 'warning',
+    confirmText: accion.charAt(0).toUpperCase() + accion.slice(1),
+  })
+  if (!ok) return
+  try {
+    const e = await updateEmpleado(selected.value.id_empleado, { estado: nuevoEstado })
+    const idx = allEmpleados.value.findIndex(x => x.id_empleado === e.id_empleado)
+    if (idx !== -1) allEmpleados.value[idx] = e
+    selected.value = e
+  } catch (e) { await alertDialog({ title: 'No se pudo cambiar el estado', message: e.response?.data?.message || 'Error al cambiar estado', variant: 'danger' }) }
 }
 </script>
 
@@ -123,7 +152,7 @@ async function remove() {
         </thead>
         <tbody>
           <tr v-if="loading"><td colspan="5" style="padding:32px;text-align:center;color:#a59a8d">Cargando…</td></tr>
-          <tr v-for="e in empleados" :key="e.id_empleado" class="table__row" @click="open(e)">
+          <tr v-for="e in empleados" :key="e.id_empleado" class="table__row" :class="{ 'is-inactive': e.estado === 'inactivo' }" @click="open(e)">
             <td>
               <div class="emp-cell">
                 <div class="avatar">{{ initials(e) }}</div>
@@ -138,7 +167,7 @@ async function remove() {
             <td class="td-muted">{{ e.documento || '—' }}</td>
             <td>
               <span class="estado" :class="'estado--' + e.estado">
-                {{ e.estado === 'activo' ? 'Activa' : 'Inactiva' }}
+                {{ estadoLabel[e.estado] || e.estado }}
               </span>
             </td>
           </tr>
@@ -147,14 +176,14 @@ async function remove() {
 
       <!-- tarjetas mobile -->
       <div class="card-list">
-        <div v-for="e in empleados" :key="e.id_empleado" class="emp-card" @click="open(e)">
+        <div v-for="e in empleados" :key="e.id_empleado" class="emp-card" :class="{ 'is-inactive': e.estado === 'inactivo' }" @click="open(e)">
           <div class="emp-card__top">
             <div class="avatar avatar--lg">{{ initials(e) }}</div>
             <div class="emp-card__info">
               <div class="emp-card__name">{{ e.nombre }} {{ e.apellido }}</div>
               <div class="emp-card__esp">{{ e.cargo || '—' }}</div>
             </div>
-            <span class="estado" :class="'estado--' + e.estado">{{ e.estado === 'activo' ? 'Activa' : 'Inactiva' }}</span>
+            <span class="estado" :class="'estado--' + e.estado">{{ estadoLabel[e.estado] || e.estado }}</span>
           </div>
           <div class="emp-card__meta">
             <span>{{ e.telefono || '—' }}</span>
@@ -264,7 +293,7 @@ async function remove() {
               </div>
               <div class="field-row">
                 <span class="field-lbl">Estado</span>
-                <span class="estado" :class="'estado--' + selected.estado">{{ selected.estado === 'activo' ? 'Activa' : 'Inactiva' }}</span>
+                <span class="estado" :class="'estado--' + selected.estado">{{ estadoLabel[selected.estado] || selected.estado }}</span>
               </div>
             </div>
           </template>
@@ -274,7 +303,10 @@ async function remove() {
         <div class="sheet__footer">
           <template v-if="mode === 'view'">
             <button class="cta-btn" @click="openEdit">Editar empleada</button>
-            <button class="del-btn" @click="remove">Desactivar empleada</button>
+            <button class="state-btn" :class="selected?.estado === 'activo' ? 'state-btn--off' : 'state-btn--on'" @click="toggleEstado">
+              {{ selected?.estado === 'activo' ? 'Desactivar empleada' : 'Reactivar empleada' }}
+            </button>
+            <button class="del-btn" @click="remove">Borrar del panel</button>
           </template>
           <template v-else>
             <button class="cta-btn" :disabled="saving" @click="save">{{ saving ? 'Guardando…' : 'Guardar' }}</button>
@@ -441,6 +473,8 @@ async function remove() {
 }
 .estado--activo   { background: rgba(22,163,74,.12);  color: #15803d; }
 .estado--inactivo { background: rgba(26,23,20,.08);   color: #8a7f72; }
+.estado--bloqueado { background: rgba(176,69,95,.10); color: #B0455F; }
+.is-inactive { opacity: .68; }
 
 .star { color: #ffcb4d; font-weight: 600; }
 
@@ -619,6 +653,29 @@ async function remove() {
   transition: background .15s;
 }
 .sec-btn:hover { background: rgba(26,23,20,.04); }
+.state-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 44px;
+  border-radius: 11px;
+  background: transparent;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.state-btn--off {
+  border: 1.5px solid rgba(176,69,95,.3);
+  color: #B0455F;
+}
+.state-btn--off:hover { background: rgba(176,69,95,.06); }
+.state-btn--on {
+  border: 1.5px solid rgba(22,163,74,.3);
+  color: #15803d;
+}
+.state-btn--on:hover { background: rgba(22,163,74,.06); }
 
 /* form */
 .form-title { font-family: Fraunces, Georgia, serif; font-size: 19px; font-weight: 500; color: #1A1714; margin-bottom: 18px; padding: 18px 22px 0; }

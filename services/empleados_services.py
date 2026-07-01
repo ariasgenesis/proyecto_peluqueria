@@ -59,11 +59,35 @@ class EmpleadoService(BaseCrudService):
         cursor.close()
         return self._row_to_dict(row) if row else None
 
+    def _verificar_pin_unico(self, pin_raw, exclude_empleado_id=None):
+        """Verifica que no exista otro empleado con el mismo PIN."""
+        cursor = self.mysql.connection.cursor()
+        try:
+            if exclude_empleado_id:
+                cursor.execute(
+                    "SELECT emp_id, emp_pin FROM empleados WHERE emp_id != %s",
+                    (exclude_empleado_id,),
+                )
+            else:
+                cursor.execute("SELECT emp_id, emp_pin FROM empleados")
+            rows = cursor.fetchall()
+        finally:
+            cursor.close()
+        for row in rows:
+            try:
+                if current_app.bcrypt.check_password_hash(row[1], pin_raw):
+                    raise ServiceError('El PIN ya está en uso por otro empleado. Elige un PIN diferente.', 409)
+            except ValueError:
+                if row[1] == pin_raw:
+                    raise ServiceError('El PIN ya está en uso por otro empleado. Elige un PIN diferente.', 409)
+
     def crear(self, data, user_id=None):
         payload = self._validar_empleado_payload(data)
         rol = payload.get('rol') or 'empleado'
         username = payload.get('username') or payload['documento']
         email = payload.get('email') or f"{payload['documento']}@staff.local"
+        # Verificar PIN único antes de hashear
+        self._verificar_pin_unico(payload['pin'])
         pin_hash = current_app.bcrypt.generate_password_hash(payload['pin']).decode('utf-8')
         cursor = self.mysql.connection.cursor()
         try:
@@ -99,6 +123,8 @@ class EmpleadoService(BaseCrudService):
                 horario_default,
             )
             self.mysql.connection.commit()
+        except ServiceError:
+            raise
         except Exception as exc:
             self.mysql.connection.rollback()
             raise self._integrity_error(exc)
@@ -126,6 +152,8 @@ class EmpleadoService(BaseCrudService):
             usuario_fields.append('usu_estado = %s')
             usuario_values.append(payload['estado'])
         if 'pin' in payload:
+            # Verificar PIN único excluyendo el empleado actual
+            self._verificar_pin_unico(payload['pin'], exclude_empleado_id=record_id)
             pin_hash = current_app.bcrypt.generate_password_hash(payload['pin']).decode('utf-8')
             usuario_fields.append('usu_password = %s')
             usuario_values.append(pin_hash)
@@ -160,6 +188,8 @@ class EmpleadoService(BaseCrudService):
                     tuple(empleado_values + [record_id]),
                 )
             self.mysql.connection.commit()
+        except ServiceError:
+            raise
         except Exception as exc:
             self.mysql.connection.rollback()
             raise self._integrity_error(exc)
@@ -173,8 +203,8 @@ class EmpleadoService(BaseCrudService):
             raise NotFoundError('Empleado no encontrado')
         cursor = self.mysql.connection.cursor()
         try:
-            cursor.execute("UPDATE empleados SET emp_estado = 'inactivo' WHERE emp_id = %s", (record_id,))
-            cursor.execute("UPDATE usuarios SET usu_estado = 'inactivo' WHERE usu_id = %s", (actual['usuario_id'],))
+            cursor.execute("UPDATE empleados SET emp_estado = 'bloqueado' WHERE emp_id = %s", (record_id,))
+            cursor.execute("UPDATE usuarios SET usu_estado = 'bloqueado' WHERE usu_id = %s", (actual['usuario_id'],))
             self.mysql.connection.commit()
         except Exception:
             self.mysql.connection.rollback()
@@ -183,7 +213,21 @@ class EmpleadoService(BaseCrudService):
             cursor.close()
         return True
 
-    def validar_pin_usuario(self, usuario_id, pin, empleado_id=None):
+    def validar_pin_usuario(self, usuario_id, pin, empleado_id=None, rol=None):
+        """Valida el PIN del empleado.
+        Si rol='admin' (o el usuario es admin en DB), omite la validación y retorna usuario_id.
+        """
+        # Bypass explícito por parámetro de rol
+        if rol == 'admin':
+            return usuario_id
+        # Verificar si el usuario autenticado es admin en la base de datos
+        cursor = self.mysql.connection.cursor()
+        cursor.execute("SELECT usu_rol FROM usuarios WHERE usu_id = %s AND usu_estado = 'activo'", (usuario_id,))
+        usu_row = cursor.fetchone()
+        cursor.close()
+        if usu_row and usu_row[0] == 'admin':
+            return usuario_id
+
         if not pin:
             raise PermissionError('El PIN del empleado es requerido')
         cursor = self.mysql.connection.cursor()
@@ -231,7 +275,10 @@ class EmpleadoService(BaseCrudService):
         clauses = []
         params = []
         filters = filters or {}
-        if not include_deleted:
+        if include_deleted:
+            clauses.append("e.emp_estado <> %s")
+            params.append('bloqueado')
+        else:
             clauses.append("e.emp_estado = %s")
             params.append('activo')
         if filters.get('estado'):

@@ -3,7 +3,9 @@ from decimal import Decimal
 
 from models.citas_model import CitaModel
 from services.base_service import BaseCrudService, ServiceError
+from services.inventario_services import InventarioService
 from services.movimientos_services import MovimientoService
+from services.servicios_services import ServicioService
 
 
 class CitaService(BaseCrudService):
@@ -55,7 +57,11 @@ class CitaService(BaseCrudService):
 
     def _obtener_duracion_servicio(self, servicio_id, cursor=None):
         close_cursor = cursor is None
-        cursor = cursor or self.mysql.connection.cursor()
+        if close_cursor:
+            ServicioService(self.mysql).validar_servicios_reservables([servicio_id])
+            cursor = self.mysql.connection.cursor()
+        else:
+            ServicioService(self.mysql).validar_servicios_reservables([servicio_id], cursor)
         cursor.execute(
             "SELECT ser_duracion FROM servicios WHERE ser_id = %s AND ser_estado = 'activo'",
             (servicio_id,),
@@ -72,9 +78,7 @@ class CitaService(BaseCrudService):
             return [], Decimal('0'), 30
         if not isinstance(servicios, list) or not servicios:
             raise ServiceError('El campo "servicios" debe ser una lista con al menos un servicio')
-        normalizados = []
-        total = Decimal('0')
-        duracion = 0
+        servicio_ids = []
         for item in servicios:
             if isinstance(item, dict):
                 servicio_id = item.get('servicio_id') or item.get('id_servicio')
@@ -82,6 +86,14 @@ class CitaService(BaseCrudService):
                 servicio_id = item
             if isinstance(servicio_id, bool) or not isinstance(servicio_id, int) or servicio_id <= 0:
                 raise ServiceError('El campo "servicio_id" debe ser un entero mayor que cero')
+            servicio_ids.append(servicio_id)
+
+        ServicioService(self.mysql).validar_servicios_reservables(servicio_ids, cursor)
+
+        normalizados = []
+        total = Decimal('0')
+        duracion = 0
+        for servicio_id in servicio_ids:
             cursor.execute(
                 "SELECT ser_precio, ser_duracion FROM servicios WHERE ser_id = %s AND ser_estado = 'activo'",
                 (servicio_id,),
@@ -96,6 +108,18 @@ class CitaService(BaseCrudService):
             total += precio
             duracion += int(servicio[1])
         return normalizados, total, duracion
+
+    def _servicios_de_cita(self, cursor, cita_id):
+        cursor.execute(
+            "SELECT dci_servicio_id FROM detalle_citas WHERE dci_cita_id = %s",
+            (cita_id,),
+        )
+        return [row[0] for row in cursor.fetchall()]
+
+    def _validar_servicios_cita_reservables(self, cursor, cita_id):
+        servicios_ids = self._servicios_de_cita(cursor, cita_id)
+        if servicios_ids:
+            ServicioService(self.mysql).validar_servicios_reservables(servicios_ids, cursor)
 
     def _normalizar_anticipo(self, value, total):
         anticipo = Decimal(str(value or 0))
@@ -430,9 +454,18 @@ class CitaService(BaseCrudService):
         if any(key in payload for key in ('empleado_id', 'fecha', 'hora')):
             self._validar_disponibilidad(empleado_id, fecha, hora, cita_id=record_id, validar_horario=payload.get('origen', actual.get('origen')) == 'web')
 
-        if payload.get('estado') == 'completada':
+        if payload.get('estado') == 'confirmada':
             cursor = self.mysql.connection.cursor()
             try:
+                self._validar_servicios_cita_reservables(cursor, record_id)
+            finally:
+                cursor.close()
+
+        if payload.get('estado') == 'completada':
+            cursor = self.mysql.connection.cursor()
+            inventario = None
+            try:
+                self._validar_servicios_cita_reservables(cursor, record_id)
                 field_map = {
                     'cliente_id': 'cit_cliente_id',
                     'empleado_id': 'cit_empleado_id',
@@ -453,6 +486,7 @@ class CitaService(BaseCrudService):
                         f"UPDATE citas SET {', '.join(assignments)} WHERE cit_id = %s",
                         tuple(values + [record_id]),
                     )
+                inventario = InventarioService(self.mysql).procesar_cita_completada(cursor, record_id, user_id)
                 self.mysql.connection.commit()
             except Exception:
                 self.mysql.connection.rollback()
@@ -460,7 +494,11 @@ class CitaService(BaseCrudService):
             finally:
                 cursor.close()
             MovimientoService(self.mysql).registrar(user_id, 'completar_cita', f'Cita #{record_id} completada')
-            return self.model.obtener_por_id(self.mysql, record_id)
+            cita = self.model.obtener_por_id(self.mysql, record_id)
+            if isinstance(inventario, dict):
+                cita['inventario_procesado'] = inventario.get('inventario_procesado')
+                cita['servicios_actualizados'] = inventario.get('servicios_actualizados', [])
+            return cita
 
         cita = self.model.actualizar(self.mysql, record_id, **payload)
         if payload.get('estado') == 'cancelada':

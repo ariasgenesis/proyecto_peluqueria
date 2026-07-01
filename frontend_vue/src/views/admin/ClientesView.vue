@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { getClientes, createCliente, updateCliente, deleteCliente } from '@/api/admin'
+import { useAlertDialog } from '@/composables/useAlertDialog'
 
 const loading     = ref(true)
 const allClientes = ref([])
@@ -10,6 +11,7 @@ const mode        = ref('view') // 'view' | 'create' | 'edit'
 const draft       = ref({})
 const saving      = ref(false)
 const formError   = ref('')
+const { alertDialog, confirmDialog } = useAlertDialog()
 
 onMounted(async () => {
   try { allClientes.value = await getClientes() }
@@ -62,12 +64,18 @@ async function save() {
 }
 
 async function remove() {
-  if (!confirm(`¿Eliminar a ${selected.value.nombre} ${selected.value.apellido}?`)) return
+  const ok = await confirmDialog({
+    title: 'Eliminar cliente',
+    message: `Eliminar a ${selected.value.nombre} ${selected.value.apellido}?`,
+    variant: 'danger',
+    confirmText: 'Eliminar',
+  })
+  if (!ok) return
   try {
     await deleteCliente(selected.value.id_cliente)
     allClientes.value = allClientes.value.filter(c => c.id_cliente !== selected.value.id_cliente)
     closeSheet()
-  } catch (e) { alert(e.response?.data?.message || 'Error al eliminar') }
+  } catch (e) { await alertDialog({ title: 'No se pudo eliminar', message: e.response?.data?.message || 'Error al eliminar', variant: 'danger' }) }
 }
 </script>
 
