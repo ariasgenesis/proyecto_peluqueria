@@ -1,35 +1,50 @@
 <script setup>
+import { computed } from 'vue'
 import { RouterLink, RouterView, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()
 const router = useRouter()
+const isEmpleado = computed(() => auth.rol === 'empleado')
 
 function logout() {
   auth.logout()
   router.replace({ path: '/' })
 }
 
-const navItems = [
-  { label: 'Dashboard', to: '/admin', icon: 'grid' },
-  { label: 'Citas', to: '/admin/citas', icon: 'cal' },
-  { label: 'Clientes', to: '/admin/clientes', icon: 'users' },
-  { label: 'Servicios', to: '/admin/servicios', icon: 'tag' },
-  { label: 'Empleados', to: '/admin/empleados', icon: 'scissors' },
-  { label: 'Inventario', to: '/admin/inventario', icon: 'box' },
-  { label: 'Facturación', to: '/admin/facturacion', icon: 'receipt' },
-  { label: 'Movimientos', to: '/admin/movimientos', icon: 'swap' },
-  { label: 'Reservas web', to: '/admin/reservas', icon: 'globe' },
+// ─── items de navegación filtrados por rol ─────────────────────────────────
+const ALL_NAV = [
+  { label: 'Dashboard',    to: '/admin',             icon: 'grid'     },
+  { label: 'Citas',        to: '/admin/citas',        icon: 'cal'      },
+  { label: 'Clientes',     to: '/admin/clientes',     icon: 'users'    },
+  { label: 'Servicios',    to: '/admin/servicios',    icon: 'tag'      },
+  { label: 'Empleados',    to: '/admin/empleados',    icon: 'scissors', adminOnly: true },
+  { label: 'Inventario',   to: '/admin/inventario',   icon: 'box',      adminOnly: true },
+  { label: 'Facturación',  to: '/admin/facturacion',  icon: 'receipt'  },
+  { label: 'Movimientos',  to: '/admin/movimientos',  icon: 'swap',     adminOnly: true },
+  { label: 'Reservas web', to: '/admin/reservas',     icon: 'globe'    },
 ]
 
-const tabItems = [
-  { label: 'Inicio', to: '/admin', icon: 'grid' },
-  { label: 'Citas', to: '/admin/citas', icon: 'cal' },
-  { label: 'Clientes', to: '/admin/clientes', icon: 'users' },
-  { label: 'Servicios', to: '/admin/servicios', icon: 'tag' },
-  { label: 'Stock', to: '/admin/inventario', icon: 'box' },
-  { label: 'Reservas', to: '/admin/reservas', icon: 'globe' },
+const ALL_TAB = [
+  { label: 'Inicio',       to: '/admin',              icon: 'grid'    },
+  { label: 'Citas',        to: '/admin/citas',         icon: 'cal'     },
+  { label: 'Clientes',     to: '/admin/clientes',      icon: 'users'   },
+  { label: 'Servicios',    to: '/admin/servicios',     icon: 'tag'     },
+  { label: 'Stock',        to: '/admin/inventario',    icon: 'box',     adminOnly: true    },
+  { label: 'Facturación',  to: '/admin/facturacion',   icon: 'receipt', empleadoOnly: true },
+  { label: 'Reservas',     to: '/admin/reservas',      icon: 'globe'   },
 ]
+
+const navItems = computed(() =>
+  ALL_NAV.filter(i => !i.adminOnly || !isEmpleado.value)
+)
+const tabItems = computed(() =>
+  ALL_TAB.filter(i => {
+    if (i.adminOnly    && isEmpleado.value)  return false
+    if (i.empleadoOnly && !isEmpleado.value) return false
+    return true
+  })
+)
 
 const initials = (name) => name ? name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase() : '?'
 </script>

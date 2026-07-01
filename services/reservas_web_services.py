@@ -27,6 +27,13 @@ class ReservaWebService(BaseCrudService):
     }
 
     def listar_admin(self, page=1, per_page=20, estado=None):
+        # Sanitizar parámetros de paginación para evitar queries sin límite
+        try:
+            page = max(1, int(page))
+            per_page = max(1, min(100, int(per_page)))
+        except (TypeError, ValueError):
+            page, per_page = 1, 20
+
         cursor = self.mysql.connection.cursor()
         where = "WHERE 1=1"
         params = []

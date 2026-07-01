@@ -1,5 +1,6 @@
 import hashlib
 import os
+import re
 import time
 
 import requests as http_requests
@@ -63,6 +64,16 @@ def crear_pago_nequi():
 
     if not referencia or not amount_cents or not telefono:
         return error_response('referencia, amount_in_cents y telefono son requeridos', 400)
+    if len(referencia) > 255:
+        return error_response('La referencia no puede superar los 255 caracteres', 400)
+    if not re.fullmatch(r'[A-Za-z0-9\-_]{1,255}', referencia):
+        return error_response('La referencia contiene caracteres no permitidos', 400)
+    if isinstance(amount_cents, bool) or not isinstance(amount_cents, int):
+        return error_response('El campo "amount_in_cents" debe ser un numero entero', 400)
+    if amount_cents <= 0:
+        return error_response('El campo "amount_in_cents" debe ser mayor que cero', 400)
+    if amount_cents > 100_000_000:
+        return error_response('El monto supera el limite permitido', 400)
     if not telefono.isdigit() or len(telefono) < 10:
         return error_response('Numero de celular invalido (minimo 10 digitos)', 400)
 
@@ -133,10 +144,15 @@ def crear_pago_nequi():
         return error_response('No se pudo conectar con Wompi', 502)
 
 
+_RE_TRANSACTION_ID = re.compile(r'^[A-Za-z0-9\-_]{1,100}$')
+
+
 @pago_bp.route('/estado/<transaction_id>', methods=['GET'])
 @role_required('cliente')
 def estado_transaccion(transaction_id):
     """GET /pagos/estado/<transaction_id> - consulta y confirma si Wompi aprobo."""
+    if not _RE_TRANSACTION_ID.match(transaction_id):
+        return error_response('ID de transaccion invalido', 400)
     private_key = os.getenv('WOMPI_PRIVATE_KEY', '')
     try:
         resp = http_requests.get(

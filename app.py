@@ -8,7 +8,6 @@ from flask import Flask, send_from_directory
 from flask_bcrypt import Bcrypt
 from flask_cors import CORS
 from flask_mysqldb import MySQL
-from flasgger import Swagger
 
 from config import Config
 from routes import cargarRutas
@@ -16,12 +15,26 @@ from services.auth_services import configurar_auth
 
 app = Flask(__name__)
 app.config.from_object(Config)
-app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY') or os.getenv('SECRET_KEY') or 'change-me'
+
+_jwt_secret = os.getenv('JWT_SECRET_KEY') or os.getenv('SECRET_KEY') or 'change-me'
+app.config['JWT_SECRET_KEY'] = _jwt_secret
 logging.basicConfig(level=logging.INFO)
+
+if _jwt_secret == 'change-me':
+    logging.warning(
+        '[SEGURIDAD] JWT_SECRET_KEY usa el valor por defecto inseguro "change-me". '
+        'Configure la variable de entorno JWT_SECRET_KEY antes de pasar a produccion.'
+    )
+
+# CORS: orígenes permitidos configurables via variable de entorno CORS_ORIGINS
+# Ejemplo: CORS_ORIGINS=https://mi-dominio.com,https://app.mi-dominio.com
+# Si no se define, se usa '*' (permite todo, útil en desarrollo).
+_cors_origins_env = os.getenv('CORS_ORIGINS', '').strip()
+_cors_origins = [o.strip() for o in _cors_origins_env.split(',') if o.strip()] or '*'
 
 CORS(
     app,
-    resources={r'/*': {'origins': '*'}},
+    resources={r'/*': {'origins': _cors_origins}},
     supports_credentials=False,
     allow_headers=['Content-Type', 'Authorization'],
     methods=['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
