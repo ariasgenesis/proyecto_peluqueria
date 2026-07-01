@@ -4,6 +4,7 @@ import { useAlertDialog } from '@/composables/useAlertDialog'
 import {
   getDashboardKanban, getDashboardAlertas,
   getClientes, getEmpleados, getServicios,
+  getDetallesCitas,
   createCita, updateCita, editarDinamicaCita, deleteCita,
   crearPago, fmtCOP,
 } from '@/api/admin'
@@ -36,6 +37,10 @@ function localDate(date = new Date()) {
   const month = String(date.getMonth() + 1).padStart(2, '0')
   const day = String(date.getDate()).padStart(2, '0')
   return `${year}-${month}-${day}`
+}
+
+function anticipo30(total) {
+  return Math.round(Number(total || 0) * 0.3)
 }
 
 async function loadKanban() {
@@ -134,7 +139,7 @@ const newSelectedServices = computed(() =>
 const newTotal = computed(() =>
   newSelectedServices.value.reduce((sum, s) => sum + Number(s.precio || 0), 0)
 )
-const newAnticipo = computed(() => Number(newDraft.value.anticipo || 0))
+const newAnticipo = computed(() => anticipo30(newTotal.value))
 const newSaldo = computed(() => Math.max(newTotal.value - newAnticipo.value, 0))
 
 async function openNewCita() {
@@ -196,6 +201,21 @@ async function saveNewCita() {
 const open    = ref(false)
 const selCard = ref(null)
 const selected = computed(() => selCard.value || {})
+const facturaPagada = computed(() => selected.value.facEstado === 'pagada')
+const canConfirm = computed(() => selected.value.estado === 'pendiente')
+const canComplete = computed(() => selected.value.estado === 'confirmada')
+const canCancel = computed(() => ['pendiente', 'confirmada'].includes(selected.value.estado))
+const canEditServices = computed(() =>
+  ['pendiente', 'confirmada'].includes(selected.value.estado) && !facturaPagada.value
+)
+const canChargeBalance = computed(() =>
+  selected.value.estado === 'completada' &&
+  selected.value.facturaId &&
+  Number(selected.value.saldo || 0) > 0
+)
+const hasFooterActions = computed(() =>
+  canConfirm.value || canComplete.value || canCancel.value || canEditServices.value || canChargeBalance.value
+)
 
 function openCard(card) { selCard.value = card; open.value = true; resetDrawerForms() }
 function closePanel() { open.value = false; resetDrawerForms() }
@@ -203,22 +223,51 @@ function closePanel() { open.value = false; resetDrawerForms() }
 function resetDrawerForms() {
   cobrarOpen.value = false
   cambiarEmpleadoOpen.value = false
+  editarServiciosOpen.value = false
+  editServicesError.value = ''
   cobrarForm.value = { metodo: 'efectivo', monto: '', fecha: new Date().toISOString().slice(0,10) }
   drawerError.value = ''
 }
 
 const drawerError = ref('')
 
+async function refreshSelectedCard() {
+  loading.value = true
+  await loadKanban()
+  if (!selCard.value?.id) return
+  const cards = [...kanban.value.pendientes, ...kanban.value.confirmadas, ...kanban.value.completadas].map(mapCard)
+  const updated = cards.find(c => c.id === selCard.value.id)
+  if (updated) selCard.value = updated
+}
+
 // ─── completar cita ───────────────────────────────────────────────────────────
+async function confirmarCita() {
+  if (!selCard.value?.id) return
+  const ok = await confirmDialog({
+    title: 'Confirmar cita',
+    message: 'Cambiar esta cita a confirmada?',
+    variant: 'success',
+    confirmText: 'Confirmar',
+  })
+  if (!ok) return
+  completing.value = true
+  drawerError.value = ''
+  try {
+    await updateCita(selCard.value.id, { estado: 'confirmada' })
+    closePanel(); loading.value = true; await loadKanban()
+  } catch (e) { drawerError.value = e.response?.data?.message || 'Error al confirmar' }
+  finally { completing.value = false }
+}
+
 const completing = ref(false)
 
 async function completarCita() {
   if (!selCard.value?.id) return
   const ok = await confirmDialog({
-    title: 'Completar cita',
-    message: 'Marcar cita como completada?',
+    title: 'Cita terminada',
+    message: 'Marcar esta cita como completada?',
     variant: 'success',
-    confirmText: 'Completar',
+    confirmText: 'Cita terminada',
   })
   if (!ok) return
   completing.value = true
@@ -276,11 +325,80 @@ async function guardarEstilista() {
 }
 
 // ─── cobrar saldo ─────────────────────────────────────────────────────────────
+const editarServiciosOpen = ref(false)
+const editServicesLoading = ref(false)
+const editServicesSaving = ref(false)
+const editServicesError = ref('')
+const editServices = ref([])
+const editServiceIds = ref(new Set())
+
+const editSelectedServices = computed(() =>
+  editServices.value.filter(s => editServiceIds.value.has(s.id_servicio))
+)
+const editTotal = computed(() =>
+  editSelectedServices.value.reduce((sum, s) => sum + Number(s.precio || 0), 0)
+)
+const editAnticipo = computed(() => anticipo30(editTotal.value))
+const editSaldo = computed(() => Math.max(editTotal.value - editAnticipo.value, 0))
+
+async function abrirEditarServicios() {
+  if (!canEditServices.value || !selCard.value?.id) return
+  editarServiciosOpen.value = true
+  editServicesLoading.value = true
+  editServicesError.value = ''
+  try {
+    const [servicios, detalles] = await Promise.all([
+      getServicios({ estado: 'activo' }),
+      getDetallesCitas({ cita_id: selCard.value.id }),
+    ])
+    editServices.value = servicios
+    editServiceIds.value = new Set((detalles || []).map(d => d.servicio_id))
+  } catch (e) {
+    editServicesError.value = e.response?.data?.message || 'No se pudieron cargar los servicios'
+  } finally {
+    editServicesLoading.value = false
+  }
+}
+
+function toggleEditService(id) {
+  const next = new Set(editServiceIds.value)
+  next.has(id) ? next.delete(id) : next.add(id)
+  editServiceIds.value = next
+}
+
+function cerrarEditarServicios() {
+  editarServiciosOpen.value = false
+  editServicesError.value = ''
+}
+
+async function guardarServiciosCita() {
+  if (!selCard.value?.id) return
+  if (!editServiceIds.value.size) {
+    editServicesError.value = 'Selecciona al menos un servicio'
+    return
+  }
+  editServicesSaving.value = true
+  editServicesError.value = ''
+  try {
+    await editarDinamicaCita(selCard.value.id, {
+      servicios: Array.from(editServiceIds.value),
+      anticipo: editAnticipo.value,
+    })
+    editarServiciosOpen.value = false
+    await refreshSelectedCard()
+  } catch (e) {
+    editServicesError.value = e.response?.data?.message || 'Error al actualizar servicios'
+  } finally {
+    editServicesSaving.value = false
+  }
+}
+
 const cobrarOpen    = ref(false)
 const cobrarLoading = ref(false)
 const cobrarForm    = ref({ metodo: 'efectivo', monto: '', fecha: new Date().toISOString().slice(0,10) })
 
 function abrirCobro() {
+  if (!canChargeBalance.value) return
   cobrarForm.value.monto = selected.value.saldo || ''
   cobrarOpen.value = true
 }
@@ -320,8 +438,8 @@ const COLUMNS = computed(() => [
     cards: aplicarFiltros(kanban.value.confirmadas, 'confirmadas').map(mapCard),
   },
   {
-    id: 'comp', name: 'Completadas', dot: '#16a34a',
-    badgeBg: 'rgba(22,163,74,.12)', badgeColor: '#15803d', badge: 'Completada',
+    id: 'comp', name: 'Terminadas', dot: '#16a34a',
+    badgeBg: 'rgba(22,163,74,.12)', badgeColor: '#15803d', badge: 'Terminada',
     cards: aplicarFiltros(kanban.value.completadas, 'completadas').map(mapCard),
   },
 ])
@@ -422,7 +540,7 @@ const retrasadas  = computed(() => alertas.value.citas_retrasadas || [])
           :class="{ active: filtroEstado === 'completadas' }"
           @click="filtroEstado = 'completadas'"
           >
-            Completadas
+            Terminadas
         </button>
 
       </div>
@@ -551,6 +669,9 @@ const retrasadas  = computed(() => alertas.value.citas_retrasadas || [])
             <div>
               <div class="drawer__cname">{{ selected.name }}</div>
               <div class="drawer__phone">{{ selected.fecha }} · {{ selected.time }}</div>
+              <span class="state-badge" :class="`state-badge--${selected.estado}`">
+                {{ selected.estado === 'pendiente' ? 'Pendiente' : selected.estado === 'confirmada' ? 'Confirmada' : 'Terminada' }}
+              </span>
             </div>
             <button class="drawer__close" @click="closePanel">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#8a7f72" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>
@@ -641,22 +762,80 @@ const retrasadas  = computed(() => alertas.value.citas_retrasadas || [])
             </div>
           </div>
 
+          <!-- editar servicios form inline (desktop drawer) -->
+          <div v-if="editarServiciosOpen" class="edit-svc-form">
+            <div class="panel-section-lbl" style="margin-top:0">Editar servicios</div>
+            <p v-if="editServicesLoading" class="col__empty" style="padding:12px 0">Cargando servicios…</p>
+            <template v-else>
+              <div class="nc-services" style="max-height:190px">
+                <button
+                  v-for="s in editServices" :key="s.id_servicio"
+                  type="button"
+                  class="nc-service"
+                  :class="{ 'nc-service--on': editServiceIds.has(s.id_servicio) }"
+                  @click="toggleEditService(s.id_servicio)"
+                >
+                  <span>
+                    <strong>{{ s.nombre }}</strong>
+                    <small>{{ s.duracion }} min</small>
+                  </span>
+                  <b>{{ fmtCOP(s.precio) }}</b>
+                </button>
+              </div>
+              <div class="invoice-box" style="margin-top:14px">
+                <div class="invoice-row">
+                  <span>Total</span>
+                  <span>{{ fmtCOP(editTotal) }}</span>
+                </div>
+                <div class="invoice-row">
+                  <span>Anticipo (30%)</span>
+                  <span style="color:#16a34a;font-weight:500">{{ fmtCOP(editAnticipo) }}</span>
+                </div>
+                <div class="invoice-divider"></div>
+                <div class="invoice-total">
+                  <span>Saldo pendiente</span>
+                  <span class="invoice-total__amount">{{ fmtCOP(editSaldo) }}</span>
+                </div>
+              </div>
+              <p v-if="editServicesError" class="drawer__error" style="margin-top:8px">{{ editServicesError }}</p>
+              <div class="stylist-edit__btns" style="margin-top:14px">
+                <button class="btn-sec" @click="cerrarEditarServicios">Cancelar</button>
+                <button class="btn-pri" :disabled="editServicesSaving || !editServiceIds.size" @click="guardarServiciosCita">
+                  {{ editServicesSaving ? 'Guardando…' : 'Guardar cambios' }}
+                </button>
+              </div>
+            </template>
+          </div>
+
           <p v-if="drawerError" class="drawer__error">{{ drawerError }}</p>
         </div>
 
-        <!-- footer actions -->
-        <div class="drawer__footer">
-          <template v-if="selected.estado !== 'completada'">
-            <button class="cta-btn" :disabled="completing" @click="completarCita">
-              {{ completing ? 'Guardando…' : 'Marcar completada' }}
+        <!-- footer actions — condicional por estado -->
+        <div v-if="hasFooterActions" class="drawer__footer">
+          <!-- PENDIENTE: confirmar + cancelar -->
+          <template v-if="canConfirm">
+            <button class="cta-btn" :disabled="completing" @click="confirmarCita">
+              {{ completing ? 'Guardando…' : 'Confirmar cita' }}
             </button>
+            <button class="cancel-link" @click="cancelarCita">Cancelar cita</button>
           </template>
-          <template v-if="selected.saldo > 0 && !cobrarOpen">
+          <!-- CONFIRMADA: terminar + editar servicios + cancelar -->
+          <template v-else-if="canComplete">
+            <button class="cta-btn" :disabled="completing" @click="completarCita">
+              {{ completing ? 'Guardando…' : 'Cita terminada' }}
+            </button>
+            <button v-if="canEditServices && !editarServiciosOpen" class="cobrar-btn" @click="abrirEditarServicios">
+              Editar servicios
+            </button>
+            <button class="cancel-link" @click="cancelarCita">Cancelar cita</button>
+          </template>
+          <!-- COMPLETADA con saldo pendiente: cobrar -->
+          <template v-else-if="canChargeBalance && !cobrarOpen">
             <button class="cobrar-btn" @click="abrirCobro">
               Cobrar saldo · {{ fmtCOP(selected.saldo) }}
             </button>
           </template>
-          <button class="cancel-link" @click="cancelarCita">Cancelar cita</button>
+          <!-- TERMINADA (saldo=0 o pagada): sin acciones -->
         </div>
       </div>
     </Transition>
@@ -737,21 +916,79 @@ const retrasadas  = computed(() => alertas.value.citas_retrasadas || [])
             </div>
           </div>
 
+          <!-- editar servicios form inline (mobile sheet) -->
+          <div v-if="editarServiciosOpen" class="edit-svc-form" style="margin:16px 22px 0">
+            <div class="panel-section-lbl" style="margin-top:0">Editar servicios</div>
+            <p v-if="editServicesLoading" class="col__empty" style="padding:12px 0">Cargando servicios…</p>
+            <template v-else>
+              <div class="nc-services" style="max-height:180px">
+                <button
+                  v-for="s in editServices" :key="s.id_servicio"
+                  type="button"
+                  class="nc-service"
+                  :class="{ 'nc-service--on': editServiceIds.has(s.id_servicio) }"
+                  @click="toggleEditService(s.id_servicio)"
+                >
+                  <span>
+                    <strong>{{ s.nombre }}</strong>
+                    <small>{{ s.duracion }} min</small>
+                  </span>
+                  <b>{{ fmtCOP(s.precio) }}</b>
+                </button>
+              </div>
+              <div class="invoice-box" style="margin-top:14px">
+                <div class="invoice-row">
+                  <span>Total</span>
+                  <span>{{ fmtCOP(editTotal) }}</span>
+                </div>
+                <div class="invoice-row">
+                  <span>Anticipo (30%)</span>
+                  <span style="color:#16a34a;font-weight:500">{{ fmtCOP(editAnticipo) }}</span>
+                </div>
+                <div class="invoice-divider"></div>
+                <div class="invoice-total">
+                  <span>Saldo pendiente</span>
+                  <span class="invoice-total__amount">{{ fmtCOP(editSaldo) }}</span>
+                </div>
+              </div>
+              <p v-if="editServicesError" class="drawer__error" style="margin-top:8px">{{ editServicesError }}</p>
+              <div class="stylist-edit__btns" style="margin-top:14px">
+                <button class="btn-sec" @click="cerrarEditarServicios">Cancelar</button>
+                <button class="btn-pri" :disabled="editServicesSaving || !editServiceIds.size" @click="guardarServiciosCita">
+                  {{ editServicesSaving ? 'Guardando…' : 'Guardar cambios' }}
+                </button>
+              </div>
+            </template>
+          </div>
+
           <p v-if="drawerError" class="drawer__error" style="margin:10px 22px 0">{{ drawerError }}</p>
         </div>
 
-        <div class="sheet__footer">
-          <template v-if="selected.estado !== 'completada'">
-            <button class="cta-btn" :disabled="completing" @click="completarCita">
-              {{ completing ? 'Guardando…' : 'Marcar completada' }}
+        <div v-if="hasFooterActions" class="sheet__footer">
+          <!-- PENDIENTE: confirmar + cancelar -->
+          <template v-if="canConfirm">
+            <button class="cta-btn" :disabled="completing" @click="confirmarCita">
+              {{ completing ? 'Guardando…' : 'Confirmar cita' }}
             </button>
+            <button class="cancel-link" @click="cancelarCita">Cancelar cita</button>
           </template>
-          <template v-if="selected.saldo > 0 && !cobrarOpen">
+          <!-- CONFIRMADA: terminar + editar servicios + cancelar -->
+          <template v-else-if="canComplete">
+            <button class="cta-btn" :disabled="completing" @click="completarCita">
+              {{ completing ? 'Guardando…' : 'Cita terminada' }}
+            </button>
+            <button v-if="canEditServices && !editarServiciosOpen" class="cobrar-btn" @click="abrirEditarServicios">
+              Editar servicios
+            </button>
+            <button class="cancel-link" @click="cancelarCita">Cancelar cita</button>
+          </template>
+          <!-- COMPLETADA con saldo pendiente: cobrar -->
+          <template v-else-if="canChargeBalance && !cobrarOpen">
             <button class="cobrar-btn" @click="abrirCobro">
               Cobrar · {{ fmtCOP(selected.saldo) }}
             </button>
           </template>
-          <button class="cancel-link" @click="cancelarCita">Cancelar cita</button>
+          <!-- TERMINADA (saldo=0 o pagada): sin acciones -->
         </div>
       </div>
     </Transition>
@@ -853,8 +1090,8 @@ const retrasadas  = computed(() => alertas.value.citas_retrasadas || [])
                 <span>{{ fmtCOP(newTotal) }}</span>
               </div>
               <div class="invoice-row">
-                <span>Anticipo</span>
-                <input class="nc-money" type="number" min="0" :max="newTotal" step="1000" v-model.number="newDraft.anticipo" />
+                <span>Anticipo (30%)</span>
+                <span style="font-weight:600;color:#1A1714">{{ fmtCOP(newAnticipo) }}</span>
               </div>
               <div class="invoice-row">
                 <span>Saldo pendiente</span>
@@ -1170,4 +1407,13 @@ const retrasadas  = computed(() => alertas.value.citas_retrasadas || [])
   .nc-sheet { width:420px; left:auto; right:0; top:0; bottom:0; border-radius:0; max-height:none; border-left:1px solid rgba(26,23,20,.08); z-index:51; }
   .nc-footer { padding:16px 24px 24px; }
 }
+
+/* badge de estado en header del drawer */
+.state-badge { display:inline-block; margin-top:7px; font-size:11px; font-weight:600; padding:3px 11px; border-radius:20px; }
+.state-badge--pendiente { background:rgba(217,119,6,.12); color:#b06407; }
+.state-badge--confirmada { background:rgba(176,69,95,.10); color:#B0455F; }
+.state-badge--completada { background:rgba(22,163,74,.12); color:#15803d; }
+
+/* formulario edición de servicios inline */
+.edit-svc-form { border-radius:12px; border:1.5px solid rgba(176,69,95,.18); background:rgba(176,69,95,.03); padding:16px; margin-top:16px; }
 </style>

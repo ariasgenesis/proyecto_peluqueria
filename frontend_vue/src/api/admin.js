@@ -15,6 +15,7 @@ export const getClientes    = (params) => apiClient.get('/clientes/',    { param
 export const getEmpleados   = (params) => apiClient.get('/empleados/',   { params: { page:1, per_page:100, ...params } }).then(list)
 export const getProductos   = (params) => apiClient.get('/productos/',   { params: { page:1, per_page:100, include_deleted: true, ...params } }).then(list)
 export const getFacturas    = (params) => apiClient.get('/facturas/',    { params: { page:1, per_page:100, ...params } }).then(list)
+export const getFactura     = (id) => apiClient.get(`/facturas/${id}`).then(obj)
 export const getMovimientos = (params) => apiClient.get('/movimientos/', { params: { page:1, per_page:100, ...params } }).then(list)
 
 // Stock (pin requerido por el backend)
@@ -43,10 +44,12 @@ export const deleteEmpleado = (id) => apiClient.delete(`/empleados/${id}`).then(
 
 // Citas CRUD
 export const getCitas           = (params) => apiClient.get('/citas/', { params: { page: 1, per_page: 100, ...params } }).then(list)
+export const getCita            = (id) => apiClient.get(`/citas/${id}`).then(obj)
 export const createCita         = (data) => apiClient.post('/citas/', data).then(obj)
 export const updateCita         = (id, data) => apiClient.put(`/citas/${id}`, data).then(obj)
 export const editarDinamicaCita = (id, data) => apiClient.put(`/citas/${id}/editar-dinamica`, data).then(obj)
 export const deleteCita         = (id) => apiClient.delete(`/citas/${id}`).then(obj)
+export const getDetallesCitas   = (params) => apiClient.get('/detalle_citas/', { params: { page: 1, per_page: 100, ...params } }).then(list)
 
 // Servicios CRUD
 export const getServicios    = (params) => apiClient.get('/servicios/', { params: { page: 1, per_page: 100, include_deleted: true, ...params } }).then(list)
@@ -61,6 +64,7 @@ export const updateServicioProducto   = (id, data) => apiClient.put(`/servicios_
 export const deleteServicioProducto   = (id) => apiClient.delete(`/servicios_productos/${id}`).then(obj)
 
 // Pagos
+export const getPagos = (params) => apiClient.get('/pagos/', { params: { page: 1, per_page: 100, ...params } }).then(list)
 export const crearPago = (data) => apiClient.post('/pagos/', data).then(obj)
 
 // Reservas web (admin)

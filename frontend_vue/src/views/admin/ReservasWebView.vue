@@ -1,8 +1,11 @@
 <script setup>
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { listarReservasWeb, cancelarReservaWeb, actualizarReservaWeb } from '@/api/reservasWeb'
 import { updateFactura } from '@/api/admin'
 import { useAlertDialog } from '@/composables/useAlertDialog'
+import { useAuthStore } from '@/stores/auth'
+
+const auth = useAuthStore()
 
 const items    = ref([])
 const loading  = ref(true)
@@ -10,12 +13,65 @@ const total    = ref(0)
 const page     = ref(1)
 const PER_PAGE = 20
 
-const filtroEstado = ref('')
+const filtroEstado = ref(auth.rol === 'empleado' ? 'pendiente' : '')
+const filtroTexto  = ref('')
+const filtroFecha  = ref('')
 const selected     = ref(null)
 const canceling    = ref(false)
 const saving       = ref(false)
 const actionError  = ref('')
 const { alertDialog, confirmDialog, promptDialog } = useAlertDialog()
+
+const isEmpleado = computed(() => auth.rol === 'empleado')
+
+function localDate(date = new Date()) {
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  const d = String(date.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
+
+// Empleado: solo reservas del día de hoy (exactamente)
+// Admin: filtro local por texto y fecha sobre los items ya paginados
+const itemsFiltrados = computed(() => {
+  if (isEmpleado.value) {
+    const hoy = localDate()
+    return items.value.filter(r => (r.fecha || '') === hoy)
+  }
+  let lista = items.value
+  if (filtroTexto.value.trim()) {
+    const q = filtroTexto.value.trim().toLowerCase()
+    lista = lista.filter(r =>
+      (r.cliente   || '').toLowerCase().includes(q) ||
+      (r.telefono  || '').toLowerCase().includes(q) ||
+      (r.servicios || '').toLowerCase().includes(q) ||
+      (r.empleado  || '').toLowerCase().includes(q) ||
+      String(r.id_reserva || '').includes(q)
+    )
+  }
+  if (filtroFecha.value) {
+    lista = lista.filter(r => (r.fecha || '') === filtroFecha.value)
+  }
+  return lista
+})
+
+// Empleado: estadísticas del día actual
+const statsHoy = computed(() => {
+  if (!isEmpleado.value) return null
+  const lista = itemsFiltrados.value
+  return {
+    total:      lista.length,
+    pendientes: lista.filter(r => r.estado === 'pendiente').length,
+    pagadas:    lista.filter(r => r.estado === 'pagada').length,
+    conAnticipo: lista.filter(r => Number(r.anticipo || 0) > 0).length,
+  }
+})
+
+// Fecha actual formateada para el encabezado del empleado
+const fechaHoyLabel = computed(() => {
+  const hoy = new Date()
+  return hoy.toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+})
 
 async function showStockServiceAlert(changes = []) {
   if (!changes?.length) return
@@ -280,20 +336,64 @@ function imprimirFactura(r) {
 onMounted(cargar)
 watch(filtroEstado, () => { page.value = 1; cargar() })
 watch(page, cargar)
+
+// Resetear página cuando cambia texto/fecha para evitar confusión
+watch(filtroTexto, () => { page.value = 1 })
+watch(filtroFecha, () => { page.value = 1 })
 </script>
 
 <template>
   <div class="rv">
     <!-- topbar -->
     <div class="rv__top">
-      <h1 class="rv__title">Reservas web</h1>
-      <div class="rv__filters">
-        <select class="rv__select" v-model="filtroEstado">
-          <option value="">Todos los estados</option>
-          <option value="pendiente">Pendiente</option>
-          <option value="pagada">Pagada</option>
-          <option value="cancelada">Cancelada</option>
-        </select>
+      <div class="rv__title-wrap">
+        <h1 class="rv__title">Reservas web</h1>
+        <span v-if="isEmpleado" class="rv__date-badge">{{ fechaHoyLabel }}</span>
+      </div>
+      <div v-if="!isEmpleado" class="rv__filters rv__filters--admin">
+        <!-- buscador de texto -->
+        <div class="rv__search-wrap">
+          <svg class="rv__search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+          <input
+            v-model="filtroTexto"
+            class="rv__search"
+            placeholder="Buscar cliente, teléfono, servicio o empleado…"
+          />
+          <button v-if="filtroTexto" class="rv__search-clear" @click="filtroTexto = ''" title="Limpiar">✕</button>
+        </div>
+        <!-- fecha -->
+        <input v-model="filtroFecha" class="rv__date" type="date" title="Filtrar por fecha" />
+        <button v-if="filtroFecha" class="rv__date-clear" @click="filtroFecha = ''" title="Limpiar fecha">✕</button>
+        <!-- chips de estado -->
+        <div class="rv__chips">
+          <button class="rv__chip" :class="{ 'rv__chip--on': filtroEstado === '' }" @click="filtroEstado = ''">Todos</button>
+          <button class="rv__chip" :class="{ 'rv__chip--on': filtroEstado === 'pendiente' }" @click="filtroEstado = 'pendiente'">Pendiente</button>
+          <button class="rv__chip" :class="{ 'rv__chip--on': filtroEstado === 'pagada' }" @click="filtroEstado = 'pagada'">Pagada</button>
+          <button class="rv__chip" :class="{ 'rv__chip--on': filtroEstado === 'cancelada' }" @click="filtroEstado = 'cancelada'">Cancelada</button>
+        </div>
+      </div>
+      <div v-else class="rv__filters">
+        <span class="rv__filter-lbl">Solo reservas de hoy</span>
+      </div>
+    </div>
+
+    <!-- tarjetas del día (solo empleado) -->
+    <div v-if="isEmpleado && statsHoy" class="rv__day-stats">
+      <div class="rv__day-card rv__day-card--total">
+        <div class="rv__day-card-val">{{ statsHoy.total }}</div>
+        <div class="rv__day-card-lbl">Reservas hoy</div>
+      </div>
+      <div class="rv__day-card rv__day-card--pending">
+        <div class="rv__day-card-val">{{ statsHoy.pendientes }}</div>
+        <div class="rv__day-card-lbl">Pendientes</div>
+      </div>
+      <div class="rv__day-card rv__day-card--anticipo">
+        <div class="rv__day-card-val">{{ statsHoy.conAnticipo }}</div>
+        <div class="rv__day-card-lbl">Con anticipo</div>
+      </div>
+      <div class="rv__day-card rv__day-card--done">
+        <div class="rv__day-card-val">{{ statsHoy.pagadas }}</div>
+        <div class="rv__day-card-lbl">Pagadas</div>
       </div>
     </div>
 
@@ -317,11 +417,13 @@ watch(page, cargar)
           </tr>
         </thead>
         <tbody>
-          <tr v-if="!items.length">
-            <td colspan="8" class="rv__empty">Sin reservas</td>
+          <tr v-if="!itemsFiltrados.length">
+            <td colspan="8" class="rv__empty">
+              {{ isEmpleado ? 'Sin reservas pendientes para hoy' : (filtroTexto || filtroFecha ? 'Sin resultados para esta búsqueda' : 'Sin reservas') }}
+            </td>
           </tr>
           <tr
-            v-for="r in items" :key="r.id_reserva"
+            v-for="r in itemsFiltrados" :key="r.id_reserva"
             class="rv__row"
             :class="{ 'rv__row--on': selected?.id_reserva === r.id_reserva }"
             @click="selected = selected?.id_reserva === r.id_reserva ? null : r; actionError = ''"
@@ -348,7 +450,7 @@ watch(page, cargar)
     </div>
 
     <!-- paginación -->
-    <div v-if="total > PER_PAGE" class="rv__pag">
+    <div v-if="total > PER_PAGE && !isEmpleado" class="rv__pag">
       <button class="rv__pgbtn" :disabled="page === 1" @click="page--">‹</button>
       <span class="rv__pginfo">{{ page }} / {{ Math.ceil(total / PER_PAGE) }}</span>
       <button class="rv__pgbtn" :disabled="page * PER_PAGE >= total" @click="page++">›</button>
@@ -428,7 +530,7 @@ watch(page, cargar)
         </button>
 
         <button
-          v-if="selected.estado === 'pendiente'"
+          v-if="selected.estado === 'pendiente' && !isEmpleado"
           class="rv__cancel-btn"
           :disabled="canceling"
           @click="cancelar(selected.id_reserva)"
@@ -446,9 +548,50 @@ watch(page, cargar)
 .rv { position: relative; padding: 28px 24px 60px; min-height: 100%; }
 
 .rv__top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; gap: 12px; flex-wrap: wrap; }
+.rv__title-wrap { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
 .rv__title { font-family: var(--serif); font-size: 22px; font-weight: 500; color: var(--ink); margin: 0; }
-.rv__filters { display: flex; gap: 10px; }
+.rv__date-badge { font-size: 12px; font-weight: 500; color: #B0455F; background: #fbeef1; padding: 3px 10px; border-radius: 20px; text-transform: capitalize; letter-spacing: .01em; }
+.rv__filters { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.rv__filters--admin { gap: 8px; }
+
+/* buscador */
+.rv__search-wrap { position: relative; display: flex; align-items: center; }
+.rv__search-icon { position: absolute; left: 10px; color: var(--muted); pointer-events: none; }
+.rv__search { height: 36px; padding: 0 32px 0 30px; border: 1px solid rgba(26,23,20,.15); border-radius: 10px; background: #fff; font-size: 13px; color: var(--ink); width: 240px; outline: none; transition: border-color .15s, box-shadow .15s; }
+.rv__search:focus { border-color: #B0455F; box-shadow: 0 0 0 3px rgba(176,69,95,.1); }
+.rv__search-clear { position: absolute; right: 8px; border: 0; background: none; cursor: pointer; font-size: 11px; color: var(--muted); padding: 0; line-height: 1; }
+.rv__search-clear:hover { color: var(--ink); }
+
+/* fecha */
+.rv__date { height: 36px; padding: 0 10px; border: 1px solid rgba(26,23,20,.15); border-radius: 10px; background: #fff; font-size: 13px; color: var(--ink); outline: none; cursor: pointer; transition: border-color .15s, box-shadow .15s; }
+.rv__date:focus { border-color: #B0455F; box-shadow: 0 0 0 3px rgba(176,69,95,.1); }
+.rv__date-clear { height: 28px; width: 28px; border: 1px solid rgba(26,23,20,.12); border-radius: 8px; background: #fff; cursor: pointer; font-size: 11px; color: var(--muted); display: flex; align-items: center; justify-content: center; transition: background .15s; }
+.rv__date-clear:hover { background: #fee2e2; color: #991b1b; border-color: #fca5a5; }
+
+/* chips de estado */
+.rv__chips { display: flex; gap: 6px; }
+.rv__chip { height: 32px; padding: 0 14px; border: 1px solid rgba(26,23,20,.15); border-radius: 20px; background: #fff; font-size: 12px; font-weight: 600; color: var(--muted); cursor: pointer; transition: all .15s; white-space: nowrap; }
+.rv__chip:hover { border-color: #B0455F; color: #B0455F; background: #fbeef1; }
+.rv__chip--on { background: #B0455F; color: #fff; border-color: #B0455F; }
+
+/* legacy select (kept in case) */
 .rv__select { height: 36px; padding: 0 12px; border: 1px solid rgba(26,23,20,.15); border-radius: 10px; background: #fff; font-size: 13px; color: var(--ink); cursor: pointer; }
+
+/* tarjetas del día (empleado) */
+.rv__day-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+@media (max-width: 640px) { .rv__day-stats { grid-template-columns: repeat(2, 1fr); } }
+.rv__day-card { border-radius: 14px; padding: 16px 18px; display: flex; flex-direction: column; gap: 4px; border: 1px solid transparent; }
+.rv__day-card--total   { background: #f0f4ff; border-color: #c7d2fe; }
+.rv__day-card--pending { background: #fefce8; border-color: #fde68a; }
+.rv__day-card--anticipo{ background: #ecfdf5; border-color: #a7f3d0; }
+.rv__day-card--done    { background: #f0fdf4; border-color: #bbf7d0; }
+.rv__day-card-val { font-size: 26px; font-weight: 700; color: var(--ink); line-height: 1; }
+.rv__day-card--total   .rv__day-card-val { color: #4338ca; }
+.rv__day-card--pending .rv__day-card-val { color: #92400e; }
+.rv__day-card--anticipo .rv__day-card-val { color: #065f46; }
+.rv__day-card--done    .rv__day-card-val { color: #15803d; }
+.rv__day-card-lbl { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.rv__filter-lbl { font-size: 12px; font-weight: 600; color: #8a7f72; padding: 0 4px; letter-spacing: .02em; }
 
 .rv__wrap { border-radius: 16px; border: 1px solid rgba(26,23,20,.1); overflow-x: auto; background: #fff; }
 .rv__loading { display: flex; justify-content: center; padding: 48px; }
@@ -486,19 +629,4 @@ watch(page, cargar)
 .rv__svc-row { display: flex; justify-content: space-between; font-size: 13px; color: var(--ink); padding: 4px 0; border-bottom: 1px solid rgba(26,23,20,.05); }
 .rv__svc-row:last-child { border-bottom: 0; }
 .rv__error { margin: 0; color: #B0455F; font-size: 12px; }
-
-.rv__print-btn { display: flex; align-items: center; justify-content: center; gap: 7px; width: 100%; height: 42px; border: 1.5px solid #B0455F; border-radius: 12px; background: transparent; color: #B0455F; font-size: 14px; font-weight: 600; cursor: pointer; font-family: inherit; transition: background .15s; }
-.rv__print-btn:hover { background: rgba(176,69,95,.06); }
-.rv__cancel-btn { width: 100%; height: 40px; border: 0; border-radius: 12px; background: #fee2e2; color: #991b1b; font-size: 13px; font-weight: 600; cursor: pointer; }
-.rv__cancel-btn:disabled { opacity: .55; cursor: not-allowed; }
-
-.sheet-enter-active, .sheet-leave-active { transition: transform .25s ease; }
-.sheet-enter-from, .sheet-leave-to { transform: translateX(100%); }
-
-@media (max-width: 720px) {
-  .rv { padding: 22px 14px 48px; }
-  .rv__wrap { border-radius: 12px; }
-  .rv__table th, .rv__table td { padding: 10px 12px; }
-  .rv__sheet { left: 0; width: auto; border-left: 0; }
-}
 </style>

@@ -1,9 +1,23 @@
+from datetime import datetime
 from flask import Blueprint, current_app, request
 
 from controllers.base_controller import error_response, success_response
 from controllers.servicios_controllers import cntlistado_servicios_publicos
 from services.base_service import ServiceError
 from services.citas_services import CitaService
+
+_DATE_FMT = '%Y-%m-%d'
+
+
+def _validar_fecha_publica(fecha):
+    """Devuelve None si la fecha es válida, o un mensaje de error."""
+    if not fecha:
+        return 'El parámetro fecha es requerido'
+    try:
+        datetime.strptime(fecha, _DATE_FMT)
+    except ValueError:
+        return 'La fecha debe tener formato YYYY-MM-DD'
+    return None
 
 
 publico_bp = Blueprint('publico', __name__)
@@ -40,8 +54,9 @@ def slots_disponibles():
     Retorna disponibilidad de cada franja horaria del día.
     """
     fecha = request.args.get('fecha', '').strip()
-    if not fecha:
-        return error_response('El parámetro fecha es requerido', 400)
+    error_fecha = _validar_fecha_publica(fecha)
+    if error_fecha:
+        return error_response(error_fecha, 400)
 
     servicios_str = request.args.get('servicios', '').strip()
     try:
@@ -85,14 +100,21 @@ def slots_disponibles():
 def disponibilidad_publica():
     try:
         servicio_id = int(request.args.get('servicio_id', ''))
-    except ValueError:
-        return error_response('El parametro servicio_id debe ser un numero entero', 400)
+        if servicio_id <= 0:
+            raise ValueError
+    except (ValueError, TypeError):
+        return error_response('El parametro servicio_id debe ser un numero entero positivo', 400)
+
+    fecha = request.args.get('fecha', '').strip()
+    error_fecha = _validar_fecha_publica(fecha)
+    if error_fecha:
+        return error_response(error_fecha, 400)
+
+    hora = request.args.get('hora', '').strip()
+    if not hora:
+        return error_response('El parametro hora es requerido', 400)
 
     try:
-        fecha = request.args.get('fecha')
-        hora = request.args.get('hora')
-        if not fecha or not hora:
-            return error_response('Los parametros fecha y hora son requeridos', 400)
         CitaService(current_app.mysql).buscar_empleado_disponible(servicio_id, fecha, hora)
     except ValueError:
         return error_response('La fecha o la hora no tienen un formato valido', 400)

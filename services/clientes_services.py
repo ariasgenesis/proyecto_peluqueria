@@ -90,6 +90,13 @@ class ClienteService(BaseCrudService):
                 raise ServiceError(f'El campo "{field}" es requerido')
 
         username = data['username'].strip()
+        if len(username) < 3 or len(username) > 50:
+            raise ServiceError('El campo "username" debe tener entre 3 y 50 caracteres')
+        if not re.fullmatch(r'^[A-Za-z0-9._\-]{3,50}$', username):
+            raise ServiceError('El campo "username" solo puede contener letras, números, puntos, guiones y guiones bajos')
+        password = data['password']
+        if len(password) < 8:
+            raise ServiceError('La contraseña debe tener al menos 8 caracteres')
         email = data['email'].strip().lower()
         if not re.fullmatch(r'^[^@\s]+@[^@\s]+\.[^@\s]+$', email):
             raise ServiceError('El correo no tiene un formato valido')
