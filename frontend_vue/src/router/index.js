@@ -43,6 +43,7 @@ const routes = [
       { path: 'facturacion', name: 'admin-facturacion', component: () => import('@/views/admin/FacturacionView.vue') },
       { path: 'movimientos', name: 'admin-movimientos', component: () => import('@/views/admin/MovimientosView.vue') },
       { path: 'reservas', name: 'admin-reservas', component: () => import('@/views/admin/ReservasWebView.vue') },
+      { path: 'auditoria', name: 'admin-auditoria', component: () => import('@/views/admin/AuditoriaView.vue'), meta: { requiresAuth: true, roles: ['admin'] } },
     ],
   },
 

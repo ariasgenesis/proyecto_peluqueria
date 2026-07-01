@@ -23,6 +23,7 @@ const ALL_NAV = [
   { label: 'Facturación',  to: '/admin/facturacion',  icon: 'receipt'  },
   { label: 'Movimientos',  to: '/admin/movimientos',  icon: 'swap',     adminOnly: true },
   { label: 'Reservas web', to: '/admin/reservas',     icon: 'globe'    },
+  { label: 'Auditoría',    to: '/admin/auditoria',    icon: 'chart',    adminOnly: true },
 ]
 
 const ALL_TAB = [
@@ -83,6 +84,8 @@ const initials = (name) => name ? name.split(' ').map(w => w[0]).join('').slice(
           <svg v-else-if="item.icon === 'swap'" class="nav-item__ico" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4 3 8l4 4M3 8h14M17 20l4-4-4-4M21 16H7"/></svg>
           <!-- globe -->
           <svg v-else-if="item.icon === 'globe'" class="nav-item__ico" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 3a14.5 14.5 0 0 1 0 18M12 3a14.5 14.5 0 0 0 0 18M3 12h18"/></svg>
+          <!-- chart -->
+          <svg v-else-if="item.icon === 'chart'" class="nav-item__ico" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
           <span>{{ item.label }}</span>
         </RouterLink>
       </nav>

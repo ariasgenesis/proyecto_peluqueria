@@ -70,6 +70,10 @@ export const crearPago = (data) => apiClient.post('/pagos/', data).then(obj)
 // Reservas web (admin)
 export const getReservaWeb = (id) => apiClient.get(`/reservas_web/${id}`).then(obj)
 
+// Auditoría y Desempeño del Personal
+export const getAuditoriaResumen = (params) =>
+  apiClient.get('/auditoria/resumen', { params }).then(obj)
+
 // Formateo moneda COP
 export const fmtCOP = (n) =>
   n == null ? '—' : '$' + Number(n).toLocaleString('es-CO', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
