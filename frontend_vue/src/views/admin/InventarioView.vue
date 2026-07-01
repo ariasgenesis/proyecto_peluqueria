@@ -212,6 +212,7 @@ async function guardarAjuste() {
       <table class="table">
         <thead>
           <tr>
+            <th class="tc">ID</th>
             <th>Producto</th>
             <th>Tipo control</th>
             <th class="tc">Stock</th>
@@ -221,8 +222,9 @@ async function guardarAjuste() {
           </tr>
         </thead>
         <tbody>
-          <tr v-if="loading"><td colspan="6" style="padding:32px;text-align:center;color:#a59a8d">Cargando…</td></tr>
+          <tr v-if="loading"><td colspan="7" style="padding:32px;text-align:center;color:#a59a8d">Cargando…</td></tr>
           <tr v-for="p in productos" :key="p.id_producto" class="table__row" :class="{ 'is-inactive': p.estado === 'inactivo' }" @click="open(p)">
+            <td class="tc td-muted td-id">#{{ p.id_producto }}</td>
             <td class="td-name">{{ p.nombre }}</td>
             <td class="td-muted">{{ p.tipo_control || '—' }}</td>
             <td class="tc" :class="{ 'td-danger': p.stock === 0, 'td-warn': p.stock <= p.stock_minimo && p.stock > 0 }">
@@ -245,7 +247,7 @@ async function guardarAjuste() {
           <div class="prod-card__top">
             <div class="prod-card__info">
               <div class="prod-card__name">{{ p.nombre }}</div>
-              <div class="prod-card__cat">{{ p.tipo_control || '—' }}</div>
+              <div class="prod-card__cat">{{ p.tipo_control || '—' }} <span class="prod-card__id">· #{{ p.id_producto }}</span></div>
             </div>
             <span class="badge" :class="'badge--' + estadoStock(p)">
               {{ estadoStock(p) === 'ok' ? 'En stock' : estadoStock(p) === 'bajo' ? 'Bajo' : estadoStock(p) === 'agotado' ? 'Agotado' : 'Inactivo' }}
@@ -333,6 +335,10 @@ async function guardarAjuste() {
             </div>
 
             <div class="fields">
+              <div class="field-row">
+                <span class="field-lbl">ID producto</span>
+                <span class="field-val td-muted">#{{ selected.id_producto }}</span>
+              </div>
               <div class="field-row">
                 <span class="field-lbl">Stock actual</span>
                 <span class="field-val" :class="{ 'text-danger': selected.stock === 0, 'text-warn': selected.stock <= selected.stock_minimo && selected.stock > 0 }">
@@ -503,6 +509,8 @@ async function guardarAjuste() {
 .prod-card__info { flex: 1; min-width: 0; }
 .prod-card__name { font-size: 14px; font-weight: 600; color: #1A1714; }
 .prod-card__cat  { font-size: 12px; color: #8a7f72; margin-top: 2px; }
+.prod-card__id   { color: #b7ab9d; }
+.td-id           { font-size: 12px; font-weight: 500; }
 .prod-card__meta { display: flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 12.5px; color: #1A1714; }
 .dot { color: #c9bfb7; }
 .td-muted { color: #8a7f72 !important; font-size: 13px; }
