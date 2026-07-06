@@ -27,6 +27,7 @@ const reporte = ref({
 const loading = ref(true)
 const empleadosLoading = ref(true)
 const error = ref('')
+const vistaActiva = ref('metricas')
 const busquedaTabla = ref('')
 const sortKey = ref('fecha')
 const sortDir = ref('desc')
@@ -381,33 +382,58 @@ function exportarPdf() {
       {{ error }}
     </div>
 
-    <div class="stats">
-      <template v-if="loading">
-        <div v-for="k in 4" :key="k" class="stat">
-          <div class="shimmer" style="width:42px;height:42px;border-radius:12px;flex:none"></div>
-          <div style="flex:1">
-            <div class="shimmer sk-line" style="width:50%;height:18px;margin-bottom:6px"></div>
-            <div class="shimmer sk-line" style="width:70%;height:12px;margin-bottom:4px"></div>
-            <div class="shimmer sk-line" style="width:40%;height:10px"></div>
-          </div>
+    <section class="audit-panel">
+      <div class="audit-tabs" role="tablist" aria-label="Secciones de auditoria">
+        <button
+          class="audit-tab"
+          :class="{ 'audit-tab--active': vistaActiva === 'metricas' }"
+          type="button"
+          role="tab"
+          :aria-selected="vistaActiva === 'metricas'"
+          @click="vistaActiva = 'metricas'"
+        >
+          M&eacute;tricas de Desempe&ntilde;o
+        </button>
+        <button
+          class="audit-tab"
+          :class="{ 'audit-tab--active': vistaActiva === 'historial' }"
+          type="button"
+          role="tab"
+          :aria-selected="vistaActiva === 'historial'"
+          @click="vistaActiva = 'historial'"
+        >
+          Historial de Citas y Facturaci&oacute;n
+        </button>
+      </div>
+
+      <div v-if="vistaActiva === 'metricas'" class="audit-section">
+        <div class="stats">
+          <template v-if="loading">
+            <div v-for="k in 4" :key="k" class="stat">
+              <div class="shimmer" style="width:42px;height:42px;border-radius:12px;flex:none"></div>
+              <div style="flex:1">
+                <div class="shimmer sk-line" style="width:50%;height:18px;margin-bottom:6px"></div>
+                <div class="shimmer sk-line" style="width:70%;height:12px;margin-bottom:4px"></div>
+                <div class="shimmer sk-line" style="width:40%;height:10px"></div>
+              </div>
+            </div>
+          </template>
+          <template v-else>
+            <div v-for="card in cards" :key="card.label" class="stat">
+              <div class="stat__ico" :style="{ background: card.accent + '18' }">
+                <svg v-if="card.icon === 'scissors'" width="20" height="20" viewBox="0 0 24 24" fill="none" :stroke="card.accent" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4 8.12 15.88M14.8 14.8 20 20M8.12 8.12 12 12"/></svg>
+                <svg v-else-if="card.icon === 'users'" width="20" height="20" viewBox="0 0 24 24" fill="none" :stroke="card.accent" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 20a5.5 5.5 0 0 1 11 0M16 6.2a3 3 0 0 1 0 5.6M21 20a5 5 0 0 0-3.5-4.8"/></svg>
+                <svg v-else-if="card.icon === 'money'" width="20" height="20" viewBox="0 0 24 24" fill="none" :stroke="card.accent" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="13" rx="2"/><path d="M16 7V5a2 2 0 0 0-4 0v2M12 12v3M10 14h4"/></svg>
+                <svg v-else width="20" height="20" viewBox="0 0 24 24" fill="none" :stroke="card.accent" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 5-7"/><path d="M7 19v-4M12 19v-8M17 19v-6"/></svg>
+              </div>
+              <div class="stat__body">
+                <div class="stat__val">{{ card.value }}</div>
+                <div class="stat__lbl">{{ card.label }}</div>
+                <div class="stat__sub">{{ card.sub }}</div>
+              </div>
+            </div>
+          </template>
         </div>
-      </template>
-      <template v-else>
-        <div v-for="card in cards" :key="card.label" class="stat">
-          <div class="stat__ico" :style="{ background: card.accent + '18' }">
-            <svg v-if="card.icon === 'scissors'" width="20" height="20" viewBox="0 0 24 24" fill="none" :stroke="card.accent" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4 8.12 15.88M14.8 14.8 20 20M8.12 8.12 12 12"/></svg>
-            <svg v-else-if="card.icon === 'users'" width="20" height="20" viewBox="0 0 24 24" fill="none" :stroke="card.accent" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 20a5.5 5.5 0 0 1 11 0M16 6.2a3 3 0 0 1 0 5.6M21 20a5 5 0 0 0-3.5-4.8"/></svg>
-            <svg v-else-if="card.icon === 'money'" width="20" height="20" viewBox="0 0 24 24" fill="none" :stroke="card.accent" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="13" rx="2"/><path d="M16 7V5a2 2 0 0 0-4 0v2M12 12v3M10 14h4"/></svg>
-            <svg v-else width="20" height="20" viewBox="0 0 24 24" fill="none" :stroke="card.accent" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 5-7"/><path d="M7 19v-4M12 19v-8M17 19v-6"/></svg>
-          </div>
-          <div class="stat__body">
-            <div class="stat__val">{{ card.value }}</div>
-            <div class="stat__lbl">{{ card.label }}</div>
-            <div class="stat__sub">{{ card.sub }}</div>
-          </div>
-        </div>
-      </template>
-    </div>
 
     <section class="insights-grid">
       <article class="panel">
@@ -531,8 +557,9 @@ function exportarPdf() {
         </div>
       </article>
     </section>
+      </div>
 
-    <section class="panel history-panel">
+      <div v-else class="audit-section audit-section--history history-panel">
       <div class="panel__head">
         <div>
           <div class="panel__title">Historial de citas y facturacion</div>
@@ -596,6 +623,7 @@ function exportarPdf() {
         <button type="button" :disabled="currentPage <= 1" @click="currentPage--">Anterior</button>
         <span>Pagina {{ currentPage }} de {{ totalPages }}</span>
         <button type="button" :disabled="currentPage >= totalPages" @click="currentPage++">Siguiente</button>
+      </div>
       </div>
     </section>
   </div>
@@ -688,11 +716,48 @@ function exportarPdf() {
   font-weight: 500;
 }
 
+.audit-panel {
+  margin: 0 20px 28px;
+  padding: 14px;
+  border: 1px solid rgba(26,23,20,.08);
+  border-radius: 16px;
+  background: #fff;
+}
+.audit-tabs {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  padding: 4px;
+  margin-bottom: 16px;
+  border-radius: 14px;
+  background: #FBF6F4;
+  border: 1px solid rgba(26,23,20,.06);
+}
+.audit-tab {
+  min-height: 40px;
+  border: 1px solid transparent;
+  border-radius: 11px;
+  background: transparent;
+  color: #6b6258;
+  padding: 0 12px;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.audit-tab--active {
+  background: #fff;
+  border-color: rgba(176,69,95,.18);
+  color: #B0455F;
+  box-shadow: 0 8px 18px rgba(26,23,20,.06);
+}
+.audit-section { min-width: 0; }
+
 .stats {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   gap: 12px;
-  padding: 0 20px 16px;
+  padding: 0 0 16px;
 }
 .stat {
   display: flex;
@@ -729,14 +794,14 @@ function exportarPdf() {
   display: grid;
   grid-template-columns: 1fr;
   gap: 14px;
-  padding: 0 20px 14px;
+  padding: 0 0 14px;
 }
 
 .chart-grid {
   display: grid;
   grid-template-columns: 1fr;
   gap: 14px;
-  padding: 0 20px 14px;
+  padding: 0;
 }
 .panel {
   background: #fff;
@@ -971,7 +1036,7 @@ function exportarPdf() {
   color: #8a7f72;
 }
 
-.history-panel { margin: 0 20px 28px; }
+.history-panel { margin: 0; }
 .table-actions {
   display: flex;
   gap: 8px;
@@ -1117,6 +1182,9 @@ tbody tr:last-child td { border-bottom: none; }
   .filters {
     grid-template-columns: 1.4fr 1fr 1fr;
   }
+  .audit-tabs {
+    grid-template-columns: 1fr 1fr;
+  }
   .insights-grid {
     grid-template-columns: 1fr 1fr;
   }
@@ -1133,21 +1201,25 @@ tbody tr:last-child td { border-bottom: none; }
   .topbar { padding: 24px 28px 20px; }
   .topbar__title { font-size: 26px; }
   .filters { padding: 0 28px 20px; }
+  .audit-panel {
+    margin: 0 28px 32px;
+    padding: 18px;
+  }
   .stats {
     grid-template-columns: repeat(4, 1fr);
-    padding: 0 28px 20px;
+    padding: 0 0 20px;
     gap: 16px;
   }
   .insights-grid {
     grid-template-columns: 1fr 1fr;
     gap: 20px;
-    padding: 0 28px 20px;
+    padding: 0 0 20px;
   }
   .chart-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 20px;
-    padding: 0 28px 20px;
+    padding: 0;
   }
-  .history-panel { margin: 0 28px 32px; }
+  .history-panel { margin: 0; }
 }
 </style>
