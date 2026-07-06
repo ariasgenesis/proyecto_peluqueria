@@ -27,7 +27,28 @@ class FacturaService(BaseCrudService):
         'fecha_modificacion': {'type': 'datetime'}
     }
 
+    def cancelar_facturas_pendientes_vencidas(self, cursor=None):
+        close_cursor = cursor is None
+        cursor = cursor or self.mysql.connection.cursor()
+        try:
+            cursor.execute(
+                "UPDATE facturas "
+                "SET fac_estado = 'cancelada', fac_fecha_modificacion = NOW() "
+                "WHERE fac_estado = 'pendiente' "
+                "AND TIMESTAMPDIFF(MINUTE, created_at, NOW()) > 10"
+            )
+            if close_cursor:
+                self.mysql.connection.commit()
+        except Exception:
+            if close_cursor:
+                self.mysql.connection.rollback()
+            raise
+        finally:
+            if close_cursor:
+                cursor.close()
+
     def listar_todos(self, page, per_page, filters=None, search=None, include_deleted=False):
+        self.cancelar_facturas_pendientes_vencidas()
         where_sql, params = self._where_clause(filters, search, include_deleted)
         cursor = self.mysql.connection.cursor()
         cursor.execute(
@@ -55,6 +76,7 @@ class FacturaService(BaseCrudService):
         }
 
     def obtener_por_id(self, record_id):
+        self.cancelar_facturas_pendientes_vencidas()
         cursor = self.mysql.connection.cursor()
         cursor.execute(self._select_facturas_sql("WHERE f.fac_id = %s"), (record_id,))
         row = cursor.fetchone()
@@ -319,6 +341,8 @@ class FacturaService(BaseCrudService):
     def actualizar(self, record_id, data, user_id=None):
         if not isinstance(data, dict):
             raise ServiceError('El cuerpo de la solicitud debe ser un objeto JSON')
+
+        self.cancelar_facturas_pendientes_vencidas()
             
         actual = self.model.obtener_por_id(self.mysql, record_id)
         if not actual:
@@ -326,7 +350,9 @@ class FacturaService(BaseCrudService):
             
         # RESTRICCIÓN: Solo facturas PENDIENTES pueden modificarse estructuralmente (total, servicios)
         # Si está parcial o pagada, solo se deberían permitir pagos (que usualmente no pasan por aquí sino por PagosService)
-        if actual['estado'] in ['pagada', 'parcial', 'cancelada']:
+        if actual['estado'] == 'cancelada':
+            raise ServiceError('Las facturas canceladas no se pueden modificar', 409)
+        if actual['estado'] in ['pagada', 'parcial']:
             # Solo permitir cambios que no afecten el total o tipo si ya está en proceso de pago
             if any(k in data for k in ('total', 'tipo', 'cita_id', 'reserva_id')):
                  raise ServiceError(f'Las facturas en estado {actual["estado"]} no permiten cambios estructurales', 409)
@@ -394,6 +420,7 @@ class FacturaService(BaseCrudService):
             cursor.close()
 
     def eliminar(self, record_id, user_id=None):
+        self.cancelar_facturas_pendientes_vencidas()
         cursor = self.mysql.connection.cursor()
         cursor.execute("SELECT fac_id, fac_estado FROM facturas WHERE fac_id = %s", (record_id,))
         existe = cursor.fetchone()

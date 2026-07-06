@@ -16,6 +16,7 @@ function logout() {
 const ALL_NAV = [
   { label: 'Dashboard',    to: '/admin',             icon: 'grid'     },
   { label: 'Citas',        to: '/admin/citas',        icon: 'cal'      },
+  { label: 'Auditoria',    to: '/admin/auditoria',    icon: 'chart',   adminOnly: true },
   { label: 'Clientes',     to: '/admin/clientes',     icon: 'users'    },
   { label: 'Servicios',    to: '/admin/servicios',    icon: 'tag'      },
   { label: 'Empleados',    to: '/admin/empleados',    icon: 'scissors', adminOnly: true },
@@ -28,6 +29,7 @@ const ALL_NAV = [
 const ALL_TAB = [
   { label: 'Inicio',       to: '/admin',              icon: 'grid'    },
   { label: 'Citas',        to: '/admin/citas',         icon: 'cal'     },
+  { label: 'Auditar',      to: '/admin/auditoria',     icon: 'chart',   adminOnly: true },
   { label: 'Clientes',     to: '/admin/clientes',      icon: 'users'   },
   { label: 'Servicios',    to: '/admin/servicios',     icon: 'tag'     },
   { label: 'Stock',        to: '/admin/inventario',    icon: 'box',     adminOnly: true    },
@@ -69,6 +71,8 @@ const initials = (name) => name ? name.split(' ').map(w => w[0]).join('').slice(
           <svg v-if="item.icon === 'grid'" class="nav-item__ico" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
           <!-- cal -->
           <svg v-else-if="item.icon === 'cal'" class="nav-item__ico" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2.5"/><path d="M3 9h18M8 3v4M16 3v4"/></svg>
+          <!-- chart -->
+          <svg v-else-if="item.icon === 'chart'" class="nav-item__ico" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 5-7"/><path d="M7 19v-4M12 19v-8M17 19v-6"/></svg>
           <!-- users -->
           <svg v-else-if="item.icon === 'users'" class="nav-item__ico" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 20a5.5 5.5 0 0 1 11 0M16 6.2a3 3 0 0 1 0 5.6M21 20a5 5 0 0 0-3.5-4.8"/></svg>
           <!-- tag -->
@@ -116,6 +120,7 @@ const initials = (name) => name ? name.split(' ').map(w => w[0]).join('').slice(
       >
         <svg v-if="t.icon === 'grid'" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
         <svg v-else-if="t.icon === 'cal'" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2.5"/><path d="M3 9h18M8 3v4M16 3v4"/></svg>
+        <svg v-else-if="t.icon === 'chart'" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 5-7"/><path d="M7 19v-4M12 19v-8M17 19v-6"/></svg>
         <svg v-else-if="t.icon === 'users'" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 20a5.5 5.5 0 0 1 11 0M16 6.2a3 3 0 0 1 0 5.6M21 20a5 5 0 0 0-3.5-4.8"/></svg>
         <svg v-else-if="t.icon === 'tag'" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V4h9l8.6 8.6a2 2 0 0 1 0 2.8Z"/><circle cx="8" cy="8" r="1.4"/></svg>
         <svg v-else-if="t.icon === 'box'" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/></svg>

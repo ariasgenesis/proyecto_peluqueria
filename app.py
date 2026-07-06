@@ -61,6 +61,7 @@ API_PREFIXES = {
     'usuarios', 'empleados', 'clientes', 'horarios', 'servicios', 'productos',
     'servicios_productos', 'citas', 'detalle_citas', 'facturas', 'pagos',
     'movimientos', 'dashboard', 'publico', 'reservas_web', 'webhook', 'cliente',
+    'auditoria',
 }
 
 

@@ -59,6 +59,8 @@ class PagoService(BaseCrudService):
 
         cursor = self.mysql.connection.cursor()
         try:
+            from services.facturas_services import FacturaService
+            FacturaService(self.mysql).cancelar_facturas_pendientes_vencidas(cursor)
             cursor.execute(
                 "INSERT INTO pagos (pag_factura_id, pag_metodo, pag_estado, pag_fecha, pag_monto, pag_referencia, pag_transaccion_id) "
                 "VALUES (%s, %s, %s, %s, %s, %s, %s)",
@@ -76,7 +78,6 @@ class PagoService(BaseCrudService):
             if payload['estado'] == 'completado':
                 nuevo_estado = self._actualizar_factura_por_pagos(cursor, payload['factura_id'], user_id)
                 if nuevo_estado == 'pagada':
-                    from services.facturas_services import FacturaService
                     FacturaService(self.mysql).asegurar_cita_para_factura_pagada(cursor, payload['factura_id'], user_id)
                     InventarioService(self.mysql).procesar_factura_pagada(cursor, payload['factura_id'], user_id)
                 cursor.execute(

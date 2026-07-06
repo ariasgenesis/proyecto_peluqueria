@@ -39,6 +39,7 @@ const routes = [
       { path: 'clientes', name: 'admin-clientes', component: () => import('@/views/admin/ClientesView.vue') },
       { path: 'servicios', name: 'admin-servicios', component: () => import('@/views/admin/ServiciosView.vue') },
       { path: 'empleados',   name: 'admin-empleados',   component: () => import('@/views/admin/EmpleadosView.vue') },
+      { path: 'auditoria',   name: 'admin-auditoria',   component: () => import('@/views/admin/AuditoriaPersonalView.vue'), meta: { requiresAuth: true, roles: ['admin'] } },
       { path: 'inventario',  name: 'admin-inventario',  component: () => import('@/views/admin/InventarioView.vue') },
       { path: 'facturacion', name: 'admin-facturacion', component: () => import('@/views/admin/FacturacionView.vue') },
       { path: 'movimientos', name: 'admin-movimientos', component: () => import('@/views/admin/MovimientosView.vue') },

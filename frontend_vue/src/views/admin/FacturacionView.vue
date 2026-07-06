@@ -99,13 +99,14 @@ const facturas = computed(() => {
 const stats = computed(() => {
   const hoy = new Date().toISOString().slice(0, 10)
   const deHoy = allFacturas.value.filter(f => (f.fecha || '').startsWith(hoy))
-  const pagadas = deHoy.filter(f => f.estado === 'pagada')
-  const wompiTotal = allFacturas.value
-    .filter(f => f.reserva_id && f.estado === 'pagada')
+  const facturasPagadas = allFacturas.value.filter(f => f.estado === 'pagada')
+  const pagadasHoy = deHoy.filter(f => f.estado === 'pagada')
+  const wompiTotal = facturasPagadas
+    .filter(f => f.reserva_id)
     .reduce((s, f) => s + Number(f.total || 0), 0)
   return {
     citasHoy: deHoy.length,
-    ingresosHoy: fmtCOP(pagadas.reduce((s, f) => s + Number(f.total || 0), 0)),
+    ingresosHoy: fmtCOP(pagadasHoy.reduce((s, f) => s + Number(f.total || 0), 0)),
     pendientes: allFacturas.value.filter(f => f.estado === 'pendiente').length,
     wompiTotal: fmtCOP(wompiTotal),
   }
@@ -238,7 +239,7 @@ async function loadDetail(f) {
 }
 
 function openPaymentModal() {
-  if (!selected.value || selected.value.estado === 'pagada' || moneyValue(selected.value.saldo_pendiente) <= 0) return
+  if (!selected.value || !['pendiente', 'parcial'].includes(selected.value.estado) || moneyValue(selected.value.saldo_pendiente) <= 0) return
   paymentDraft.value = {
     metodo: 'efectivo',
     monto: selected.value.saldo_pendiente || '',
@@ -503,7 +504,7 @@ async function printInvoice() {
           </template>
 
           <div class="detail-actions">
-            <button class="cta-btn" :disabled="selected.estado === 'pagada' || moneyValue(selected.saldo_pendiente) <= 0 || detail.loading" @click="openPaymentModal">Registrar pago</button>
+            <button class="cta-btn" :disabled="!['pendiente', 'parcial'].includes(selected.estado) || moneyValue(selected.saldo_pendiente) <= 0 || detail.loading" @click="openPaymentModal">Registrar pago</button>
             <button class="sec-btn" @click="openFullDetail">Ver detalle completo</button>
             <button class="sec-btn" @click="printInvoice">Imprimir factura</button>
           </div>

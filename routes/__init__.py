@@ -16,6 +16,7 @@ from .publico import publico_bp
 from .reservas_web import reserva_web_bp
 from .webhook import webhook_bp
 from .cliente_dashboard import cliente_dashboard_bp
+from .auditoria_personal import auditoria_personal_bp
 
 
 def cargarRutas(app):
@@ -37,3 +38,4 @@ def cargarRutas(app):
     app.register_blueprint(reserva_web_bp, url_prefix='/reservas_web')
     app.register_blueprint(webhook_bp, url_prefix='/webhook')
     app.register_blueprint(cliente_dashboard_bp, url_prefix='/cliente')
+    app.register_blueprint(auditoria_personal_bp, url_prefix='/auditoria')
